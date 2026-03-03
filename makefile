@@ -3,14 +3,13 @@ TARGET = cacti
 .PHONY: all depend clean $(TARGET)
 
 ifndef NTHREADS
-  NTHREADS = 4
+  NTHREADS = 1
 endif
 
 ifeq ($(TAG), dbg)
   FLAGS = -m32 -ggdb -g -Wall -O0 -DNTHREADS=$(NTHREADS)
 else
   FLAGS = -m32 -O3 -DNDEBUG  -DNTHREADS=$(NTHREADS)
-#  FLAGS = -O3 -DNDEBUG -msse2 -mfpmath=sse 
 endif
 
 CC    = g++
@@ -44,9 +43,6 @@ $(OBJS): %.o: %.c
 
 $(CPP_OBJS): %.cc.o: %.cpp
 	$(CPP) $(FLAGS) -c $< -o $@
-
-#%.o: %.c %.cpp
-#	$(CC) $(FLAGS) -c $< -o $@
 
 clean:
 	rm -rf *.o _cacti.so cacti.py $(TARGET) cacti_wrap.c
