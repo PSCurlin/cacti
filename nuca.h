@@ -38,16 +38,73 @@
  * ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
  * SOFTWARE.
  *------------------------------------------------------------*/
-#ifndef __IO_H__
-#define __IO_H__
 
+#ifndef __NUCA_H__
+#define __NUCA_H__
 
-#include "const.h"
+#include "basic_circuit.h"
+#include "component.h"
+#include "parameter.h"
+#include "assert.h"
 #include "cacti_interface.h"
+#include "wire.h"
+#include "mat.h"
+#include "io.h"
+#include "router.h"
+#include <iostream>
 
 
-void output_data_csv(const uca_org_t & fin_res);
-void output_UCA(uca_org_t * fin_res);
+
+class nuca_org_t {
+  public:
+  ~nuca_org_t();
+//    int size;
+    /* area, power, access time, and cycle time stats */
+    Component nuca_pda;
+    Component bank_pda;
+    Component wire_pda;
+    Wire *h_wire;
+    Wire *v_wire;
+    Router *router;
+    /* for particular network configuration
+     * calculated based on a cycle accurate
+     * simulation Ref: CACTI 6 - Tech report
+     */
+    double contention;
+
+    /* grid network stats */
+    double avg_hops;
+    int rows;
+    int columns;
+    int bank_count;
+};
+
+
+
+class Nuca : public Component
+{
+  public:
+    Nuca(
+        TechnologyParameter::DeviceType *dt);
+    void print_router();
+    ~Nuca();
+    void sim_nuca();
+    void init_cont();
+    int calc_cycles(double lat, double oper_freq);
+    void calculate_nuca_area (nuca_org_t *nuca);
+    int check_nuca_org (nuca_org_t *n, min_values_t *minval);
+    nuca_org_t * find_optimal_nuca (list<nuca_org_t *> *n, min_values_t *minval);
+    void print_nuca(nuca_org_t *n);
+    void print_cont_stats();
+
+  private:
+
+    TechnologyParameter::DeviceType *deviceType;
+    int wt_min, wt_max;
+    Wire *wire_vertical[WIRE_TYPES],
+         *wire_horizontal[WIRE_TYPES];
+
+};
 
 
 #endif

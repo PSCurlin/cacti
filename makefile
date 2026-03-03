@@ -1,59 +1,28 @@
 TARGET = cacti
 
-.PHONY: all depend clean $(TARGET)
+.PHONY: dbg opt depend clean clean_dbg clean_opt
 
-ifndef NTHREADS
-  NTHREADS = 4
-endif
+all: opt
 
-ifeq ($(TAG), dbg)
-  FLAGS = -m32 -ggdb -g -Wall -O0 -DNTHREADS=$(NTHREADS)
-else
-  FLAGS = -m32 -O3 -DNDEBUG  -DNTHREADS=$(NTHREADS)
-#  FLAGS = -O3 -DNDEBUG -msse2 -mfpmath=sse 
-endif
+dbg: $(TARGET).mk obj_dbg
+	@$(MAKE) TAG=dbg -C . -f $(TARGET).mk
 
-CC    = g++
-CPP   = g++
-LIBS  = -lm
+opt: $(TARGET).mk obj_opt
+	@$(MAKE) TAG=opt -C . -f $(TARGET).mk
 
-SRCS = main.c time.c io.c technology.c basic_circuit.c 
-OBJS = $(patsubst %.c,%.o,$(SRCS))
-CPP_SRCS = parameter.cpp area.cpp crossbar.cpp htree.cpp decoder.cpp
-CPP_OBJS = $(patsubst %.cpp,%.cc.o,$(CPP_SRCS))
-PYTHONLIB_SRCS = $(patsubst main.c, ,$(SRCS)) cacti_wrap.c
-PYTHONLIB_OBJS = $(patsubst %.c,%.o,$(PYTHONLIB_SRCS)) 
-INCLUDES       = -I /usr/include/python2.4 -I /usr/lib/python2.4/config
+obj_dbg:
+	mkdir $@
 
-all: $(TARGET)
+obj_opt:
+	mkdir $@
 
-pythonlib: $(PYTHONLIB_OBJS) $(CPP_OBJS)
-	$(CC) -shared $(FLAGS) $(PYTHONLIB_OBJS) $(CPP_OBJS) -L /usr/lib/python2.4/config -lpython2.4 -o _cacti.so
+clean: clean_dbg clean_opt
 
-$(TARGET): $(OBJS) $(CPP_OBJS)
-	$(CPP) $(FLAGS) $(OBJS) $(CPP_OBJS) -o $@ $(LIBS) -pthread
+clean_dbg: obj_dbg
+	@$(MAKE) TAG=dbg -C . -f $(TARGET).mk clean
+	rm -rf $<
 
-cacti_wrap.o: cacti_wrap.c
-	$(CC) $(FLAGS) -c $< -o $@ $(INCLUDES)
-
-cacti_wrap.c: cacti.i
-	swig -classic -python -c++ -o $@ $< 
-
-$(OBJS): %.o: %.c
-	$(CC) $(FLAGS) -c $< -o $@
-
-$(CPP_OBJS): %.cc.o: %.cpp
-	$(CPP) $(FLAGS) -c $< -o $@
-
-#%.o: %.c %.cpp
-#	$(CC) $(FLAGS) -c $< -o $@
-
-clean:
-	rm -rf *.o _cacti.so cacti.py $(TARGET) cacti_wrap.c
-
-depend:
-	makedepend -p"./" -f makefile $(SRCS)
-
-
-# DO NOT DELETE
+clean_opt: obj_opt
+	@$(MAKE) TAG=opt -C . -f $(TARGET).mk clean
+	rm -rf $<
 

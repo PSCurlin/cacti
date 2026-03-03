@@ -1,5 +1,5 @@
 /*------------------------------------------------------------
- *                              CACTI 5.3
+ *                              CACTI 6.5
  *         Copyright 2008 Hewlett-Packard Development Corporation
  *                         All Rights Reserved
  *
@@ -38,15 +38,42 @@
  * ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
  * SOFTWARE.
  *------------------------------------------------------------*/
+
 #ifndef __BASIC_CIRCUIT_H__
 #define __BASIC_CIRCUIT_H__
 
 #include "const.h"
 #include "cacti_interface.h"
 
+
 int powers (int base, int n);
 bool is_pow2(int64_t val);
 uint32_t _log2(uint64_t num);
+
+//#define DBG
+#ifdef DBG
+    #define PRINTDW(a);\
+    a;
+#else
+    #define PRINTDW(a);\
+
+#endif
+
+
+enum Wire_placement {
+    outside_mat,
+    inside_mat,
+    local_wires
+};
+
+
+
+enum Htree_type {
+    Add_htree,
+    Data_in_htree,
+    Data_out_htree,
+};
+
 
 
 double logtwo (double x);
@@ -121,15 +148,4 @@ double cmos_Ileak(
     bool _is_cell = false,
     bool _is_wl_tr = false);
 
-int logical_effort(
-    int    num_gates_min,
-    double g,
-    double F,
-    double * w_n,
-    double * w_p,
-    double C_load,
-    double p_to_n_sz_ratio,
-    bool   is_dram_,
-    bool   is_wl_tr_,
-    bool   never_max_ = false);
 #endif

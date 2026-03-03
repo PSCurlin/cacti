@@ -1,5 +1,5 @@
 /*------------------------------------------------------------
- *                              CACTI 5.3
+ *                              CACTI 6.5
  *         Copyright 2008 Hewlett-Packard Development Corporation
  *                         All Rights Reserved
  *
@@ -39,63 +39,62 @@
  * SOFTWARE.
  *------------------------------------------------------------*/
 
-#include "io.h"
-#include <iostream>
+#ifndef __UCA_H__
+#define __UCA_H__
 
-using namespace std;
+#include "area.h"
+#include "bank.h"
+#include "component.h"
+#include "parameter.h"
+#include "htree2.h"
 
 
-int main(int argc,char *argv[])
+class UCA : public Component
 {
-  final_results result2;
+  public:
+    UCA(const DynamicParameter & dyn_p);
+    ~UCA();
+    double compute_delays(double inrisetime);  // returns outrisetime
+    void   compute_power_energy();
 
-  if (argc != 37)
-  {
-    cout << "The number of arguments must be 36 -- please refer to README file" << endl;
-    exit(1);
-  }
-  else
-  {
-    result2 = cacti_interface(atoi(argv[ 1]),
-                              atoi(argv[ 2]),
-                              atoi(argv[ 3]),
-                              atoi(argv[ 4]),
-                              atoi(argv[ 5]),
-                              atoi(argv[ 6]),
-                              atoi(argv[ 7]),
-                              atoi(argv[ 8]),
-                              atof(argv[ 9]),
-                              atoi(argv[10]),
-                              atoi(argv[11]),
-                              atoi(argv[12]),
-                              atoi(argv[13]),
-                              atoi(argv[14]),
-                              atoi(argv[15]),
-                              atoi(argv[16]),
-                              atoi(argv[17]),
-                              atoi(argv[18]),
-                              atoi(argv[19]),
-                              atoi(argv[20]),
-                              atoi(argv[21]),
-                              atoi(argv[22]),
-                              atoi(argv[23]),
-                              atoi(argv[24]),
-                              atoi(argv[25]),
-                              atoi(argv[26]),
-                              atoi(argv[27]),
-                              atoi(argv[28]),
-                              atoi(argv[29]),
-                              atoi(argv[30]),
-                              atof(argv[31]),
-                              atof(argv[32]),
-                              atof(argv[33]),
-                              atoi(argv[34]),
-                              atoi(argv[35]),
-                              atoi(argv[36]));
-  }
-  
-  output_data_csv(result2);
+    DynamicParameter dp;
+    Bank   bank;
 
-  return 0;
-}
+    Htree2   * htree_in_add;
+    Htree2   * htree_in_data;
+    Htree2   * htree_out_data;
+
+    powerDef power_routing_to_bank;
+
+    uint32_t nbanks;
+
+    int   num_addr_b_bank;
+    int   num_di_b_bank;
+    int   num_do_b_bank;
+    int   RWP, ERP, EWP;
+    double area_all_dataramcells;
+
+    double dyn_read_energy_from_closed_page;
+    double dyn_read_energy_from_open_page;
+    double dyn_read_energy_remaining_words_in_burst;
+
+    double refresh_power;  // only for DRAM
+    double activate_energy;
+    double read_energy;
+    double write_energy;
+    double precharge_energy;
+    double leak_power_subbank_closed_page;
+    double leak_power_subbank_open_page;
+    double leak_power_request_and_reply_networks;
+
+    double delay_array_to_sa_mux_lev_1_decoder;
+    double delay_array_to_sa_mux_lev_2_decoder;
+    double delay_before_subarray_output_driver;
+    double delay_from_subarray_out_drv_to_out;
+    double access_time;
+    double precharge_delay;
+    double multisubbank_interleave_cycle_time;
+};
+
+#endif
 

@@ -1,5 +1,5 @@
 /*------------------------------------------------------------
- *                              CACTI 5.3
+ *                              CACTI 6.5
  *         Copyright 2008 Hewlett-Packard Development Corporation
  *                         All Rights Reserved
  *
@@ -69,7 +69,7 @@ bool is_pow2(int64_t val)
 {
   if (val <= 0)
   {
-     return false;
+    return false;
   }
   else if (val == 1)
   {
@@ -165,6 +165,8 @@ double gate_C_pass(
   return (dt->C_g_ideal + dt->C_overlap + 3*dt->C_fringe)*width + dt->l_phy*Cpolywire;
 }
 
+
+
 double drain_C_(
     double width,
     int nchannel,
@@ -175,23 +177,16 @@ double drain_C_(
     bool _is_cell,
     bool _is_wl_tr)
 {
-  double width_folded_transistor, ratio_p_to_n, height_transistor_region,
-    total_drain_width, total_drain_height_for_cap_wrt_gate,
-    drain_cap_area, drain_cap_sidewall, drain_cap_wrt_gate, 
-    drain_cap_total, c_junc_area, c_junc_sidewall, c_fringe, c_overlap, 
-    drain_height_for_sidewall, drain_cap_metal_connecting_folded_transistors;
-  int number_folded_transistors;
-
-  c_junc_sidewall = 0.25e-15; //F/micron
-  const TechnologyParameter::DeviceType * dt;
+  double w_folded_tr;
+  const  TechnologyParameter::DeviceType * dt;
 
   if ((_is_dram) && (_is_cell))
   { 
-    dt = &g_tp.dram_acc;   //DRAM cell access transistor
+    dt = &g_tp.dram_acc;   // DRAM cell access transistor
   }
   else if ((_is_dram) && (_is_wl_tr))
   {
-    dt = &g_tp.dram_wl;    //DRAM wordline transistor
+    dt = &g_tp.dram_wl;    // DRAM wordline transistor
   }
   else if ((!_is_dram) && _is_cell)
   {
@@ -202,62 +197,61 @@ double drain_C_(
     dt = &g_tp.peri_global;
   }
 
-  c_junc_area = dt->C_junc;
-  c_fringe    = 2*dt->C_fringe;
-  c_overlap   = 2*dt->C_overlap;
-  
-  drain_cap_metal_connecting_folded_transistors = 0;
-  //Determine the width of the transistor after folding (if it is getting folded)
+  double c_junc_area = dt->C_junc;
+  double c_junc_sidewall = dt->C_junc_sidewall;
+  double c_fringe    = 2*dt->C_fringe;
+  double c_overlap   = 2*dt->C_overlap;
+  double drain_C_metal_connecting_folded_tr = 0;
+
+  // determine the width of the transistor after folding (if it is getting folded)
   if (next_arg_thresh_folding_width_or_height_cell == 0)
-  { //interpret fold_dimension as the
-    //the folding width threshold i.e. the value of transistor width above which the
-    //transistor gets folded
-    width_folded_transistor = fold_dimension;
+  { // interpret fold_dimension as the the folding width threshold 
+    // i.e. the value of transistor width above which the transistor gets folded
+    w_folded_tr = fold_dimension;
   } 
   else
-  { //interpret fold_dimension as the height of the cell that this transistor is part of. 
-    height_transistor_region = fold_dimension - 2 * g_tp.HPOWERRAIL;
-    ratio_p_to_n = 2.0 / (2.0 + 1.0);
+  { // interpret fold_dimension as the height of the cell that this transistor is part of. 
+    double h_tr_region  = fold_dimension - 2 * g_tp.HPOWERRAIL;
+    // TODO : w_folded_tr must come from Component::compute_gate_area()
+    double ratio_p_to_n = 2.0 / (2.0 + 1.0);
     if (nchannel)
     {
-      width_folded_transistor = (1 - ratio_p_to_n) * (height_transistor_region - g_tp.MIN_GAP_BET_P_AND_N_DIFFS);
+      w_folded_tr = (1 - ratio_p_to_n) * (h_tr_region - g_tp.MIN_GAP_BET_P_AND_N_DIFFS);
     }
     else
     {
-      width_folded_transistor = ratio_p_to_n * (height_transistor_region - g_tp.MIN_GAP_BET_P_AND_N_DIFFS);
+      w_folded_tr = ratio_p_to_n * (h_tr_region - g_tp.MIN_GAP_BET_P_AND_N_DIFFS);
     }
   }
-  number_folded_transistors = (int) (ceil(width / width_folded_transistor));
+  int num_folded_tr = (int) (ceil(width / w_folded_tr));
 
-  if (number_folded_transistors < 2)
+  if (num_folded_tr < 2)
   {
-    width_folded_transistor = width;
+    w_folded_tr = width;
   }
 
-  total_drain_width = (g_tp.w_poly_contact + 2 * g_tp.spacing_poly_to_contact) + (stack - 1) * g_tp.spacing_poly_to_poly;
-  drain_height_for_sidewall = width_folded_transistor;
-  total_drain_height_for_cap_wrt_gate = width_folded_transistor + 2 * width_folded_transistor * (stack - 1);
-  if (number_folded_transistors > 1)
+  double total_drain_w = (g_tp.w_poly_contact + 2 * g_tp.spacing_poly_to_contact) +  // only for drain
+                         (stack - 1) * g_tp.spacing_poly_to_poly;
+  double drain_h_for_sidewall = w_folded_tr;
+  double total_drain_height_for_cap_wrt_gate = w_folded_tr + 2 * w_folded_tr * (stack - 1);
+  if (num_folded_tr > 1)
   {
-    total_drain_width += (number_folded_transistors - 2) * (g_tp.w_poly_contact + 
-      2 * g_tp.spacing_poly_to_contact) + (number_folded_transistors - 1) * ((stack - 1) * 
-      g_tp.spacing_poly_to_poly);
-    if (number_folded_transistors%2 == 0)
+    total_drain_w += (num_folded_tr - 2) * (g_tp.w_poly_contact + 2 * g_tp.spacing_poly_to_contact) +
+                     (num_folded_tr - 1) * ((stack - 1) * g_tp.spacing_poly_to_poly);
+
+    if (num_folded_tr%2 == 0)
     {
-      drain_height_for_sidewall = 0 ;
+      drain_h_for_sidewall = 0;
     }
-    total_drain_height_for_cap_wrt_gate *=  number_folded_transistors;
-    drain_cap_metal_connecting_folded_transistors = g_tp.wire_local.C_per_um * 
-      total_drain_width;
+    total_drain_height_for_cap_wrt_gate *= num_folded_tr;
+    drain_C_metal_connecting_folded_tr   = g_tp.wire_local.C_per_um * total_drain_w;
   }
-  
-  drain_cap_area = c_junc_area * total_drain_width * width_folded_transistor;
-  drain_cap_sidewall = c_junc_sidewall * (drain_height_for_sidewall + 2 * total_drain_width);
-  drain_cap_wrt_gate = (c_fringe + c_overlap) * total_drain_height_for_cap_wrt_gate;
 
-  drain_cap_total = drain_cap_area + drain_cap_sidewall + drain_cap_wrt_gate +
-                    drain_cap_metal_connecting_folded_transistors;
-  return(drain_cap_total);
+  double drain_C_area     = c_junc_area * total_drain_w * w_folded_tr;
+  double drain_C_sidewall = c_junc_sidewall * (drain_h_for_sidewall + 2 * total_drain_w);
+  double drain_C_wrt_gate = (c_fringe + c_overlap) * total_drain_height_for_cap_wrt_gate;
+
+  return (drain_C_area + drain_C_sidewall + drain_C_wrt_gate + drain_C_metal_connecting_folded_tr);
 }
 
 
@@ -447,50 +441,4 @@ double simplified_pmos_leakage(
 }
 
 
-int logical_effort(
-    int num_gates_min,
-    double g,
-    double F,
-    double * w_n,
-    double * w_p,
-    double C_load,
-    double p_to_n_sz_ratio,
-    bool   is_dram_,
-    bool   is_wl_tr_,
-    bool   never_max_)
-{
-  int num_gates = (int) (log(F) / log(fopt));
 
-  // check if num_gates is odd. if so, add 1 to make it even
-  num_gates+= (num_gates % 2) ? 1 : 0;
-  num_gates = MAX(num_gates, num_gates_min);
-
-  // recalculate the effective fanout of each stage
-  double f = pow(F, 1.0 / num_gates);
-  int    i = num_gates - 1;
-  double C_in = C_load / f;
-  w_n[i]  = (1.0 / (1.0 + p_to_n_sz_ratio)) * C_in / gate_C(1, 0, is_dram_, false, is_wl_tr_);
-  w_p[i]  = p_to_n_sz_ratio * w_n[i];
-
-  if (never_max_ == false && w_n[i] > g_tp.max_w_nmos_)
-  {
-    double C_ld = gate_C(g_tp.max_w_nmos_ + p_to_n_sz_ratio*g_tp.max_w_nmos_, 0, is_dram_, false, is_wl_tr_);
-    F = g * C_ld / gate_C(w_n[0] + w_p[0], 0, is_dram_, false, is_wl_tr_);
-    num_gates = (int) (log(F) / log(fopt)) + 1;
-    num_gates+= (num_gates % 2) ? 1 : 0;
-    num_gates = MAX(num_gates, num_gates_min);
-    f = pow(F, 1.0 / (num_gates - 1));
-    i = num_gates - 1;
-    w_n[i]  = g_tp.max_w_nmos_;
-    w_p[i]  = p_to_n_sz_ratio * w_n[i];
-  }
-
-  for (i = num_gates - 2; i >= 1; i--)
-  {
-    w_n[i] = w_n[i+1] / f;
-    w_p[i] = p_to_n_sz_ratio * w_n[i];
-  }
-
-  assert(num_gates <= MAX_NUMBER_GATES_STAGE);
-  return num_gates;
-}

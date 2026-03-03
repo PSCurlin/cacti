@@ -38,16 +38,38 @@
  * ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
  * SOFTWARE.
  *------------------------------------------------------------*/
-#ifndef __IO_H__
-#define __IO_H__
+
+#ifndef __SUBARRAY_H__
+#define __SUBARRAY_H__
+
+#include "area.h"
+#include "component.h"
+#include "parameter.h"
+
+using namespace std;
 
 
-#include "const.h"
-#include "cacti_interface.h"
+class Subarray : public Component
+{
+  public:
+    Subarray(const DynamicParameter & dp, bool is_fa_);
+    ~Subarray();
 
+    const DynamicParameter & dp;
+    double  get_total_cell_area();
+    int32_t num_rows;
+    int32_t num_cols;
+    Area    cell;
 
-void output_data_csv(const uca_org_t & fin_res);
-void output_UCA(uca_org_t * fin_res);
+    bool    is_fa;
+    double  C_wl;
+    double  C_bl;
+  private:
+
+    void compute_C();  // compute bitline and wordline capacitance
+};
+
 
 
 #endif
+

@@ -1,5 +1,5 @@
 /*------------------------------------------------------------
- *                              CACTI 5.3
+ *                              CACTI 6.5
  *         Copyright 2008 Hewlett-Packard Development Corporation
  *                         All Rights Reserved
  *
@@ -42,52 +42,69 @@
 #define __DECODER_H__
 
 #include "area.h"
+#include "component.h"
 #include "parameter.h"
 #include <vector>
 
 using namespace std;
 
 
-class Decoder
+class Decoder : public Component
 {
- public:
-  Decoder(int _num_dec_signals, bool _flag_way_select, double _C_ld_dec_out, double _R_wire_dec_out);
-
-  bool   exist;
-  int    num_in_signals;
-  double C_ld_dec_out;
-  double R_wire_dec_out;
-  int    num_gates;
-  int    num_gates_min;
-  double w_dec_n[MAX_NUMBER_GATES_STAGE];
-  double w_dec_p[MAX_NUMBER_GATES_STAGE];
-  double delay;
-  powerDef power;
-
-  Area area;
-
-  void compute_widths(bool fully_assoc, bool is_dram_, bool is_wl_tr_);
-  void compute_area(const Area & cell, bool is_dram_);
-  double compute_delays(
-      double inrisetime,
-      const  Area & cell,
-      bool   is_dram,
-      bool   is_wl_tr);  // return outrisetime
+  public:
+    Decoder(
+        int _num_dec_signals,
+        bool flag_way_select,
+        double _C_ld_dec_out,
+        double _R_wire_dec_out,
+        bool fully_assoc_,
+        bool is_dram_,
+        bool is_wl_tr_,
+        const Area & cell_);
+    
+    bool   exist;
+    int    num_in_signals;
+    double C_ld_dec_out;
+    double R_wire_dec_out;
+    int    num_gates;
+    int    num_gates_min;
+    double w_dec_n[MAX_NUMBER_GATES_STAGE];
+    double w_dec_p[MAX_NUMBER_GATES_STAGE];
+    double delay;
+    powerDef power;
+    bool   fully_assoc;
+    bool   is_dram;
+    bool   is_wl_tr;
+    const  Area & cell;
+    
+    
+    void   compute_widths();
+    void   compute_area();
+    double compute_delays(double inrisetime);  // return outrisetime
 };
 
 
-class PredecoderBlock
+
+class PredecBlk : public Component
 {
  public:
-  PredecoderBlock();
+  PredecBlk(
+      int num_dec_signals,
+      Decoder * dec,
+      double C_wire_predec_blk_out,
+      double R_wire_predec_blk_out,
+      int    num_dec_per_predec,
+      bool   is_dram_,
+      bool   is_blk1);
 
+  Decoder * dec;
   bool exist;
   int number_input_addr_bits;
-  double c_load_predecoder_block_output;
-  double r_wire_predecoder_block_output;
+  double C_ld_predec_blk_out;
+  double R_wire_predec_blk_out;
   int branch_effort_nand2_gate_output;
   int branch_effort_nand3_gate_output;
-  int flag_two_unique_paths;
+  bool   flag_two_unique_paths;
   int flag_L2_gate;
   int number_inputs_L1_gate;
   int number_gates_L1_nand2_path;
@@ -95,61 +112,50 @@ class PredecoderBlock
   int number_gates_L2;
   int min_number_gates_L1;
   int min_number_gates_L2;
-  int number_L1_parallel_instances_nand2;
-  int number_L1_parallel_instances_nand3;
-  int number_L2_parallel_instances;
-  double width_L1_nand2_path_n[MAX_NUMBER_GATES_STAGE];
-  double width_L1_nand2_path_p[MAX_NUMBER_GATES_STAGE];
-  double width_L1_nand3_path_n[MAX_NUMBER_GATES_STAGE];
-  double width_L1_nand3_path_p[MAX_NUMBER_GATES_STAGE];
-  double width_L2_n[MAX_NUMBER_GATES_STAGE];
-  double width_L2_p[MAX_NUMBER_GATES_STAGE];
+  double w_L1_nand2_n[MAX_NUMBER_GATES_STAGE];
+  double w_L1_nand2_p[MAX_NUMBER_GATES_STAGE];
+  double w_L1_nand3_n[MAX_NUMBER_GATES_STAGE];
+  double w_L1_nand3_p[MAX_NUMBER_GATES_STAGE];
+  double w_L2_n[MAX_NUMBER_GATES_STAGE];
+  double w_L2_p[MAX_NUMBER_GATES_STAGE];
   double delay_nand2_path;
   double delay_nand3_path;
   powerDef power_nand2_path;
   powerDef power_nand3_path;
   powerDef power_L2;
 
-  Area area;
   bool is_dram_;
 
   void compute_widths();
-  static void initialize(
-      int num_dec_signals,
-      PredecoderBlock & blk1,
-      PredecoderBlock & blk2,
-      const Decoder & dec,
-      double C_wire_predec_blk_out,
-      double R_wire_predec_blk_out,
-      int    num_dec_gates_driven_per_predec_out,
-      bool   is_dram_);
   void compute_area();
   pair<double, double> compute_delays(pair<double, double> inrisetime); // <nand2, nand3>
   // return <outrise_nand2, outrise_nand3>
 };
 
 
-class PredecoderBlockDriver
+class PredecBlkDrv : public Component
 {
  public:
-  PredecoderBlockDriver();
+  PredecBlkDrv(
+      int   way_select,
+      PredecBlk * blk_,
+      bool  is_dram);
 
   int flag_driver_exists;
-  int flag_driving_decoder_output;
   int number_input_addr_bits;
   int number_gates_nand2_path;
   int number_gates_nand3_path;
   int min_number_gates;
-  int number_parallel_instances_driving_1_nand2_load;
-  int number_parallel_instances_driving_2_nand2_load;
-  int number_parallel_instances_driving_4_nand2_load;
-  int number_parallel_instances_driving_2_nand3_load;
-  int number_parallel_instances_driving_8_nand3_load;
-  int number_parallel_instances_nand3_path;
-  double c_load_nand2_path_predecode_block_driver_output;
-  double c_load_nand3_path_predecode_block_driver_output;
-  double r_load_nand2_path_predecode_block_driver_output;
-  double r_load_nand3_path_predecode_block_driver_output;
+  int num_buffers_driving_1_nand2_load;
+  int num_buffers_driving_2_nand2_load;
+  int num_buffers_driving_4_nand2_load;
+  int num_buffers_driving_2_nand3_load;
+  int num_buffers_driving_8_nand3_load;
+  int num_buffers_nand3_path;
+  double c_load_nand2_path_out;
+  double c_load_nand3_path_out;
+  double r_load_nand2_path_out;
+  double r_load_nand3_path_out;
   double width_nand2_path_n[MAX_NUMBER_GATES_STAGE];
   double width_nand2_path_p[MAX_NUMBER_GATES_STAGE];
   double width_nand3_path_n[MAX_NUMBER_GATES_STAGE];
@@ -159,23 +165,12 @@ class PredecoderBlockDriver
   powerDef power_nand2_path;
   powerDef power_nand3_path;
 
-  Area area;
-  bool is_dram_;
+  PredecBlk * blk;
+  Decoder   * dec;
+  bool  is_dram_;
+  int   way_select;
 
-  void compute_widths(
-      const PredecoderBlock & predec_blk,
-      const Decoder &ptr_dec,
-      int way_select);
-  static void initialize(
-      int num_dec_signals,
-      int flag_way_select,
-      int way_select,
-      PredecoderBlockDriver & blk_drv1,
-      PredecoderBlockDriver & blk_drv2,
-      const PredecoderBlock & blk1,
-      const PredecoderBlock & blk2,
-      const Decoder & dec,
-      bool is_dram_);
+  void compute_widths();
   void compute_area();
   pair<double, double> compute_delays(
       double inrisetime_nand2_path,
@@ -183,23 +178,50 @@ class PredecoderBlockDriver
 
   inline int num_addr_bits_nand2_path()
   {
-    return number_parallel_instances_driving_1_nand2_load +
-           number_parallel_instances_driving_2_nand2_load +
-           number_parallel_instances_driving_4_nand2_load;
+    return num_buffers_driving_1_nand2_load +
+           num_buffers_driving_2_nand2_load +
+           num_buffers_driving_4_nand2_load;
   }
   inline int num_addr_bits_nand3_path()
   {
-    return number_parallel_instances_driving_2_nand3_load +
-           number_parallel_instances_driving_8_nand3_load;
+    return num_buffers_driving_2_nand3_load +
+           num_buffers_driving_8_nand3_load;
   }
-  double get_readOp_dynamic_power(int num_act_mats_hor_dir);
+  double get_rdOp_dynamic_E(int num_act_mats_hor_dir);
 };
 
 
-class Driver
+
+class Predec : public Component
+{
+  public:
+    Predec(
+        PredecBlkDrv * drv1,
+        PredecBlkDrv * drv2);
+
+    double compute_delays(double inrisetime);  // return outrisetime
+
+    PredecBlk    * blk1;
+    PredecBlk    * blk2;
+    PredecBlkDrv * drv1;
+    PredecBlkDrv * drv2;
+
+    powerDef block_power;
+    powerDef driver_power;
+
+  private:
+    // returns <delay, risetime>
+    pair<double, double> get_max_delay_before_decoder(
+        pair<double, double> input_pair1,
+        pair<double, double> input_pair2);
+};
+
+
+
+class Driver : public Component
 {
  public:
-  Driver();
+  Driver(double c_gate_load_, double c_wire_load_, double r_wire_load_, bool is_dram);
 
   int    number_gates;
   int    min_number_gates;
@@ -210,11 +232,10 @@ class Driver
   double r_wire_load;
   double delay;
   powerDef power;
+  bool   is_dram_;
 
-  void   compute_widths(bool is_dram_);
-  double compute_delay(
-      double inrisetime,
-      bool is_dram_);
+  void   compute_widths();
+  double compute_delay(double inrisetime);
 };
 
 

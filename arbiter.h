@@ -38,16 +38,50 @@
  * ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
  * SOFTWARE.
  *------------------------------------------------------------*/
-#ifndef __IO_H__
-#define __IO_H__
 
+#ifndef __ARBITER__
+#define __ARBITER__
 
-#include "const.h"
+#include <assert.h>
+#include <iostream>
+#include "basic_circuit.h"
 #include "cacti_interface.h"
+#include "component.h"
+#include "parameter.h"
+#include "mat.h"
+#include "wire.h"
+
+class Arbiter : public Component
+{
+  public:
+    Arbiter(
+      double Req,
+      double flit_sz,
+      double output_len,
+      TechnologyParameter::DeviceType *dt = &(g_tp.peri_global));
+    ~Arbiter();
+
+    void print_arbiter();
+    double arb_req();
+    double arb_pri();
+    double arb_grant();
+    double arb_int();
+    void compute_power();
+    double Cw3(double len);
+    double crossbar_ctrline();
+    double transmission_buf_ctrcap();
 
 
-void output_data_csv(const uca_org_t & fin_res);
-void output_UCA(uca_org_t * fin_res);
 
+  private:
+    double NTn1, PTn1, NTn2, PTn2, R, PTi, NTi;
+    double flit_size;
+    double NTtr, PTtr;
+    double o_len;
+    TechnologyParameter::DeviceType *deviceType;
+    double TriS1, TriS2;
+    double min_w_pmos, Vdd;
+
+};
 
 #endif

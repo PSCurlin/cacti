@@ -1,5 +1,5 @@
 /*------------------------------------------------------------
- *                              CACTI 5.3
+ *                              CACTI 6.5
  *         Copyright 2008 Hewlett-Packard Development Corporation
  *                         All Rights Reserved
  *
@@ -38,49 +38,45 @@
  * ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
  * SOFTWARE.
  *------------------------------------------------------------*/
-#ifndef __CROSSBAR_H__
-#define __CROSSBAR_H__
 
-#include "area.h"
-#include "decoder.h"
+#ifndef __CROSSBAR__
+#define __CROSSBAR__
+
+#include <assert.h>
+#include <iostream>
+#include "basic_circuit.h"
+#include "cacti_interface.h"
+#include "component.h"
 #include "parameter.h"
-#include <vector>
+#include "mat.h"
+#include "wire.h"
 
-using namespace std;
-
-
-class Crossbar
+class Crossbar : public Component
 {
- public:
-  Crossbar(
-      int num_in_ports,
-      int num_out_ports,
-      int num_signals_per_port,
-      double c_output_line_load,
-      bool is_dram_);
-  void compute_widths();
-  double compute_delay(double inrisetime);
-  void compute_area();
- 
- public:
-  int num_in_ports;
-  int num_out_ports;
-  int num_signals_per_port;
-  int min_number_gates;
-  int number_gates_output_line_tristate_buffer;
-  Driver crossbar_input_line_driver;
-  vector<double> width_output_line_tristate_buffer_n;
-  vector<double> width_output_line_tristate_buffer_p;
-  double width_output_line_tristate_buffer_nor2_n;
-  double width_output_line_tristate_buffer_nor2_p;
-  double c_output_line_load;
-  double delay;
-  powerDef power;
+  public:
+    Crossbar(
+      double in,
+      double out,
+      double flit_sz,
+      TechnologyParameter::DeviceType *dt = &(g_tp.peri_global));
+    ~Crossbar();
 
-  bool is_dram;
-  Area area;
+    void print_crossbar();
+    double output_buffer();
+    void compute_power();
+
+    double n_inp, n_out;
+    double flit_size;
+    double tri_inp_cap, tri_out_cap, tri_ctr_cap, tri_int_cap;
+
+  private:
+    TechnologyParameter::DeviceType *deviceType;
+    double TriS1, TriS2;
+    double min_w_pmos, Vdd;
+
 };
 
 
-#endif
 
+
+#endif

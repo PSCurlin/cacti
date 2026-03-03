@@ -38,16 +38,39 @@
  * ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
  * SOFTWARE.
  *------------------------------------------------------------*/
-#ifndef __IO_H__
-#define __IO_H__
+
+#ifndef __BANK_H__
+#define __BANK_H__
+
+#include "component.h"
+#include "decoder.h"
+#include "mat.h"
+#include "htree2.h"
 
 
-#include "const.h"
-#include "cacti_interface.h"
+class Bank : public Component
+{
+  public:
+    Bank(const DynamicParameter & dyn_p);
+    ~Bank();
+    double compute_delays(double inrisetime);  // return outrisetime
+    void   compute_power_energy();
 
+    const DynamicParameter & dp;
+    Mat   mat;
+    Htree2 *htree_in_add;
+    Htree2 *htree_in_data;
+    Htree2 *htree_out_data;
+    
+    int  num_addr_b_mat;
+    int  num_mats_hor_dir;
+    int  num_mats_ver_dir;
 
-void output_data_csv(const uca_org_t & fin_res);
-void output_UCA(uca_org_t * fin_res);
+    int  num_addr_b_row_dec;
+    int  num_addr_b_routed_to_mat_for_act;
+    int  num_addr_b_routed_to_mat_for_rd_or_wr;
+};
+
 
 
 #endif

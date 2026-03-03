@@ -1,5 +1,5 @@
 /*------------------------------------------------------------
- *                              CACTI 5.3
+ *                              CACTI 6.5
  *         Copyright 2008 Hewlett-Packard Development Corporation
  *                         All Rights Reserved
  *
@@ -74,6 +74,11 @@ const unsigned int MAXDATAN     = 512;      // maximum for Ndwl and Ndbl
 const unsigned int MAXSUBARRAYS = 1048576;  // maximum subarrays for data and tag arrays
 const unsigned int MAXDATASPD   = 256;      // maximum for Nspd
 const unsigned int MAX_COL_MUX  = 256;
+
+
+
+#define ROUTER_TYPES 3
+#define WIRE_TYPES 6
 
 const double Cpolywire = 0;
 
@@ -219,7 +224,6 @@ const static uint32_t sram_num_cells_wl_stitching_ = 16;
 const static uint32_t dram_num_cells_wl_stitching_ = 64;
 const static uint32_t comm_dram_num_cells_wl_stitching_ = 256;
 const static uint32_t num_bits_per_ecc_b_          = 8;
-const static bool     add_ecc_b_                   = true;
 
 #define MAX_NUMBER_GATES_STAGE 20
 #define MAX_NUMBER_HTREE_NODES 20
@@ -253,5 +257,7 @@ enum ram_cell_tech_type_num
   lp_dram   = 3,
   comm_dram = 4
 };
+
+
 
 #endif

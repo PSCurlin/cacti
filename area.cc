@@ -38,16 +38,17 @@
  * ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
  * SOFTWARE.
  *------------------------------------------------------------*/
-#ifndef __IO_H__
-#define __IO_H__
+
+#include "area.h"
+#include "component.h"
+#include "decoder.h"
+#include "parameter.h"
+#include "basic_circuit.h"
+#include <iostream>
+#include <math.h>
+#include <assert.h>
+
+using namespace std;
 
 
-#include "const.h"
-#include "cacti_interface.h"
 
-
-void output_data_csv(const uca_org_t & fin_res);
-void output_UCA(uca_org_t * fin_res);
-
-
-#endif

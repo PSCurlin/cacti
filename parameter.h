@@ -1,5 +1,5 @@
 /*------------------------------------------------------------
- *                              CACTI 5.3
+ *                              CACTI 6.5
  *         Copyright 2008 Hewlett-Packard Development Corporation
  *                         All Rights Reserved
  *
@@ -42,8 +42,11 @@
 #ifndef __PARAMETER_H__
 #define __PARAMETER_H__
 
+#include "area.h"
 #include "const.h"
 #include "cacti_interface.h"
+#include "io.h"
+
 
 // parameters which are functions of certain device technology
 class TechnologyParameter
@@ -55,7 +58,8 @@ class TechnologyParameter
     double C_g_ideal;
     double C_fringe;
     double C_overlap;
-    double C_junc;
+    double C_junc;  // C_junc_area
+    double C_junc_sidewall;
     double l_phy;
     double l_elec;
     double R_nch_on;
@@ -71,7 +75,7 @@ class TechnologyParameter
     double n_to_p_eff_curr_drv_ratio;
 
     DeviceType(): C_g_ideal(0), C_fringe(0), C_overlap(0), C_junc(0),
-                  l_phy(0), l_elec(0), R_nch_on(0), R_pch_on(0), 
+                  C_junc_sidewall(0), l_phy(0), l_elec(0), R_nch_on(0), R_pch_on(0), 
                   Vdd(0), Vth(0),
                   I_on_n(0), I_on_p(0), I_off_n(0), I_off_p(0),
                   C_ox(0), t_ox(0), n_to_p_eff_curr_drv_ratio(0) { };
@@ -95,6 +99,8 @@ class TechnologyParameter
       t_ox      = 0;
       n_to_p_eff_curr_drv_ratio = 0;
     }
+
+    void display(uint32_t indent = 0);
   };
   class InterconnectType
   {
@@ -111,6 +117,8 @@ class TechnologyParameter
       R_per_um = 0;
       C_per_um = 0;
     }
+
+    void display(uint32_t indent = 0);
   };
   class MemoryType
   {
@@ -131,11 +139,14 @@ class TechnologyParameter
       cell_nmos_w = 0;
       Vbitpre = 0;
     }
+
+    void display(uint32_t indent = 0);
   };
 
   double ram_wl_stitching_overhead_;
   double min_w_nmos_;
   double max_w_nmos_;
+  double max_w_nmos_dec;
   double unit_len_wire_del;
   double FO4;
   double kinv;
@@ -143,6 +154,8 @@ class TechnologyParameter
   double w_sense_en;
   double w_sense_n;
   double w_sense_p;
+  double sense_delay;
+  double sense_dy_power;
   double w_iso;
   double w_poly_contact;
   double spacing_poly_to_poly;
@@ -174,6 +187,8 @@ class TechnologyParameter
   double HPOWERRAIL;
   double cell_h_def;
 
+  uint64_t h_dec;
+
   DeviceType sram_cell;   // SRAM cell transistor
   DeviceType dram_acc;    // DRAM access transistor
   DeviceType dram_wl;     // DRAM wordline transistor
@@ -182,9 +197,16 @@ class TechnologyParameter
   InterconnectType wire_local;
   InterconnectType wire_inside_mat;
   InterconnectType wire_outside_mat;
+
+  double horiz_dielectric_constant;
+  double vert_dielectric_constant;
+  double aspect_ratio;
+  double miller_value;
  
   MemoryType sram;
   MemoryType dram;
+
+  void display(uint32_t indent = 0);
 
   void reset()
   {
@@ -210,7 +232,66 @@ class TechnologyParameter
 };
 
 
-extern InputParameter g_ip;
+
+class DynamicParameter
+{
+  public:
+    bool is_tag;
+    bool pure_ram;
+    int tagbits;
+    int num_subarrays;  // only for leakage computation  -- the number of subarrays per bank
+    int num_mats;       // only for leakage computation  -- the number of mats per bank
+    double Nspd;
+    int Ndwl;
+    int Ndbl;
+    int deg_bl_muxing; 
+    int deg_senseamp_muxing_non_associativity; 
+    int Ndsam_lev_1;
+    int Ndsam_lev_2;
+    int number_addr_bits_mat;             // per port
+    int number_subbanks_decode;           // per_port
+    int num_di_b_bank_per_port;
+    int num_do_b_bank_per_port;
+    int num_di_b_mat;
+    int num_do_b_mat;
+    int num_do_b_subbank;
+    int number_way_select_signals_mat;
+    int num_act_mats_hor_dir;
+    bool is_dram;
+    double V_b_sense;
+    int num_r_subarray;
+    int num_c_subarray;
+    int num_mats_h_dir;
+    int num_mats_v_dir;
+    uint32_t ram_cell_tech_type;
+    double dram_refresh_period;
+
+    DynamicParameter();
+    DynamicParameter(
+        bool         is_tag,
+        int          pure_ram,
+        double       Nspd,
+        unsigned int Ndwl,
+        unsigned int Ndbl,
+        unsigned int Ndcm,
+        unsigned int Ndsam_lev_1,
+        unsigned int Ndsam_lev_2,
+        bool         is_main_mem);
+
+    int use_inp_params;
+    unsigned int num_rw_ports;
+    unsigned int num_rd_ports;
+    unsigned int num_wr_ports;
+    unsigned int num_se_rd_ports;  // number of single ended read ports
+    unsigned int out_w;// == nr_bits_out
+    bool   is_main_mem;
+    Area   cell;
+    bool   is_valid;
+};
+
+
+
+extern InputParameter * g_ip;
 extern TechnologyParameter g_tp;
 
 #endif
