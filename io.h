@@ -39,61 +39,11 @@
  * SOFTWARE.
  *------------------------------------------------------------*/
 
-#include "def.h"
-#include "areadef.h"
-#include "stdio.h"
-#include "leakage.h"
-#include "time.h"
-#include "io.h"
-#include <string.h>
 
-
-
-/*------------------------------------------------------------------------------*/
-      
-int main(int argc,char *argv[])
-{
-    total_result_type result2;
-	
-	//Note that the following command line options are permitted:
-	//C B A TECH Nbanks
-    //C B A TECH RWP ERP EWP Nbanks
-	//C B A RWP ERP EWP NSER Nbanks TECH OUTPUTWIDTH CUSTOMTAG TAGWIDTH ACCESSMODE PURESRAM
-	//(CUSTOMTAG should be set to 1 or 0 depending on whether the tag width needs to be
-	//changed (1) or not(0). TAGWIDTH IS the desired tag width if the tag width is being 
-	//changed. ACCESSMODE = 0 for normal access, ACCESSMODE = 1 for sequential access,
-	//ACCESSMODE = 2 for fast access. PURESRAM = 1 if the memory is a scratchpad memory,
-	//PURESRAM = 0 if the memory is a cache
-
-    if (input_data(argc,argv) == ERROR) exit(1);
-	else{
-		if (argc == 6){
-			if (strcmp(argv[3],"FA") == 0) {
-				result2 = cacti_interface(atoi(argv[1]), atoi(argv[2]), 0, 1, 0, 0, 0, atoi(argv[5]), atof(argv[4]), 64, 0, 0, 0, 0);
-			} 
-			else if (strcmp(argv[3],"DM") == 0){
-					result2 = cacti_interface(atoi(argv[1]), atoi(argv[2]), 1, 1, 0, 0, 0, atoi(argv[5]), atof(argv[4]), 64, 0, 0, 0, 0);
-				 }
-				 else{
-					 result2 = cacti_interface(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]), 1, 0, 0, 0, atoi(argv[5]), atof(argv[4]), 64, 0, 0, 0, 0);
-				 }
-		}
-		else if (argc == 9){
-				if (strcmp(argv[3],"FA") == 0) {
-					result2 = cacti_interface(atoi(argv[1]), atoi(argv[2]), 0, 1, 0, 0, 0, atoi(argv[5]), atof(argv[4]), 64, 0, 0, 0, 0);
-				} 
-				else if (strcmp(argv[3],"DM") == 0){
-						result2 = cacti_interface(atoi(argv[1]), atoi(argv[2]), 1, 1, 0, 0, 0, atoi(argv[5]), atof(argv[4]), 64, 0, 0, 0, 0);
-					 }
-					 else{
-						result2 = cacti_interface(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]), atoi(argv[5]), atoi(argv[6]), atoi(argv[7]), 0, atoi(argv[8]), atof(argv[4]), 64, 0, 0, 0, 0);
-						 }
-			   }
-			  else {
-					result2 = cacti_interface(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]), atoi(argv[4]), atoi(argv[5]), atoi(argv[6]), atoi(argv[7]), atoi(argv[8]), atof(argv[9]), atoi(argv[10]), atoi(argv[11]), atoi(argv[12]), atoi(argv[13]), atoi(argv[14]));
-			  }
-	}
-
-	output_data(&result2.result,&result2.area,&result2.params);
-}
+int input_data(int argc,char *argv[]);
+void output_data(result_type *result,arearesult_type *arearesult, parameter_type *parameters);
+//void output_data_csv(total_result_type* result);
+void init_tech_params_default_process();
+void output_area_components(arearesult_type *arearesult, parameter_type *parameters);
+void output_time_components(result_type *result,parameter_type *parameters);
 
