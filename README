@@ -1,5 +1,11 @@
 # CACTI-5.3
 
+
+Please install the following packages:
+```
+sudo apt-get update && sudo apt install -y gcc-multilib g++-multilib libc6-dev-i386
+```
+
 CACTI command line format:
 
 cacti C B A RWP ERP EWP NSER NBANKS TECH OUTPUT_WIDTH CUSTOM_TAG TAG_WIDTH
