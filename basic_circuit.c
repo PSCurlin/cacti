@@ -1,6 +1,6 @@
 /*------------------------------------------------------------
- *                              CACTI 4.0
- *         Copyright 2005 Hewlett-Packard Development Corporation
+ *                              CACTI 5.3
+ *         Copyright 2008 Hewlett-Packard Development Corporation
  *                         All Rights Reserved
  *
  * Permission to use, copy, and modify this software and its documentation is
@@ -40,9 +40,47 @@
  *------------------------------------------------------------*/
 
 
-#include "def.h"
-#include "stdio.h"
-#include "math.h"
+#include "basic_circuit.h"
+#include "parameter.h"
+#include <iostream>
+#include <assert.h>
+
+uint32_t _log2(uint64_t num)
+{
+  uint32_t log2 = 0;
+
+  if (num == 0)
+  {
+    std::cerr << "log0?" << std::endl;
+    exit(1);
+  }
+
+  while (num > 1)
+  {
+    num = (num >> 1);
+    log2++;
+  }
+
+  return log2;
+}
+
+
+bool is_pow2(int64_t val)
+{
+  if (val <= 0)
+  {
+     return false;
+  }
+  else if (val == 1)
+  {
+    return true;
+  }
+  else
+  {
+    return (_log2(val) != _log2(val-1));
+  }
+}
+
 
 int powers (int base, int n)
 {
@@ -58,152 +96,401 @@ int powers (int base, int n)
 
 double logtwo (double x)
 {
-  if (x <= 0)
-    printf ("%e\n", x);
+  assert(x > 0);
   return ((double) (log (x) / log (2.0)));
 }
 
 /*----------------------------------------------------------------------*/
 
-double gatecap (double width,double  wirelength)	/* returns gate capacitance in Farads */
-     /* width: gate width in um (length is Leff) */
-     /* wirelength: poly wire length going to gate in lambda */
+
+double gate_C(
+    double width,
+    double wirelength,
+    bool   _is_dram,
+    bool   _is_cell,
+    bool   _is_wl_tr)
 {
-  return (width * Leff * Cgate + wirelength * Cpolywire * Leff);
-}
+  const TechnologyParameter::DeviceType * dt;
 
-double gatecappass (double width,double  wirelength)	/* returns gate capacitance in Farads */
-     /* width: gate width in um (length is Leff) */
-     /* wirelength: poly wire length going to gate in lambda */
-{
-  return (width * Leff * Cgatepass + wirelength * Cpolywire * Leff);
-}
-
-
-/*----------------------------------------------------------------------*/
-
-/* Routine for calculating drain capacitances.  The draincap routine
- * folds transistors larger than 10um */
-
-double draincap (double width,int nchannel,int stack)	/* returns drain cap in Farads */
-	 /* width: in um */
-     /* nchannel: whether n or p-channel (boolean) */
-     /* stack: number of transistors in series that are on */
-{
-  double Cdiffside, Cdiffarea, Coverlap, cap;
-
-  Cdiffside = (nchannel) ? Cndiffside : Cpdiffside;
-  Cdiffarea = (nchannel) ? Cndiffarea : Cpdiffarea;
-  Coverlap = (nchannel) ? (Cndiffovlp + Cnoxideovlp) :
-                          (Cpdiffovlp + Cpoxideovlp);
-  /* calculate directly-connected (non-stacked) capacitance */
-  /* then add in capacitance due to stacking */
-  if(stack > 1) {
-	if (width >= 10/FUDGEFACTOR) {
-		cap = 3.0 * Leff * width / 2.0 * Cdiffarea + 6.0 * Leff * Cdiffside +
-		width * Coverlap;
-		cap += (double) (stack - 1) * (Leff * width * Cdiffarea +
-						4.0 * Leff * Cdiffside +
-						2.0 * width * Coverlap);
-	}
-	else {
-		cap =
-		3.0 * Leff * width * Cdiffarea + (6.0 * Leff + width) * Cdiffside +
-		width * Coverlap;
-		cap +=
-		(double) (stack - 1) * (Leff * width * Cdiffarea +
-					2.0 * Leff * Cdiffside +
-					2.0 * width * Coverlap);
-	}
+  if (_is_dram && _is_cell)
+  { 
+    dt = &g_tp.dram_acc;   //DRAM cell access transistor
   }
-  else {
-	  if (width >= 10/FUDGEFACTOR) {
-		cap = 3.0 * Leff * width / 2.0 * Cdiffarea + 6.0 * Leff * Cdiffside +
-		width * Coverlap;
-	}
-	else {
-		cap = 3.0 * Leff * width * Cdiffarea + (6.0 * Leff + width) * Cdiffside +
-		width * Coverlap;
-	}
+  else if (_is_dram && _is_wl_tr)
+  {
+    dt = &g_tp.dram_wl;    //DRAM wordline transistor
   }
-  return (cap);
+  else if (!_is_dram && _is_cell)
+  {
+    dt = &g_tp.sram_cell;  // SRAM cell access transistor
+  }
+  else
+  {
+    dt = &g_tp.peri_global;
+  }
+
+  return (dt->C_g_ideal + dt->C_overlap + 3*dt->C_fringe)*width + dt->l_phy*Cpolywire;
 }
 
-/*----------------------------------------------------------------------*/
 
-/* The following routines estimate the effective resistance of an
-   on transistor as described in the tech report.  The first routine
-   gives the "switching" resistance, and the second gives the 
-   "full-on" resistance */
-
-double transresswitch (double width,int nchannel,int stack)	/* returns resistance in ohms */
-     /* width: in um */
-     /* nchannel: whether n or p-channel (boolean) */
-     /* stack: number of transistors in series */
+// returns gate capacitance in Farads
+// actually this function is the same as gate_C() now
+double gate_C_pass(
+    double width,       // gate width in um (length is Lphy_periph_global)
+    double wirelength,  // poly wire length going to gate in lambda
+    bool   _is_dram,
+    bool   _is_cell,
+    bool   _is_wl_tr)
 {
-  double restrans;
-  restrans = (nchannel) ? (Rnchannelstatic) : (Rpchannelstatic);
-  /* calculate resistance of stack - assume all but switching trans
-     have 0.8X the resistance since they are on throughout switching */
-  return ((1.0 + ((stack - 1.0) * 0.8)) * restrans / width);
+  // v5.0
+  const TechnologyParameter::DeviceType * dt;
+
+  if ((_is_dram) && (_is_cell))
+  { 
+    dt = &g_tp.dram_acc;   //DRAM cell access transistor
+  }
+  else if ((_is_dram) && (_is_wl_tr))
+  {
+    dt = &g_tp.dram_wl;    //DRAM wordline transistor
+  }
+  else if ((!_is_dram) && _is_cell)
+  {
+    dt = &g_tp.sram_cell;  // SRAM cell access transistor
+  }
+  else
+  {
+    dt = &g_tp.peri_global;
+  }
+
+  return (dt->C_g_ideal + dt->C_overlap + 3*dt->C_fringe)*width + dt->l_phy*Cpolywire;
 }
 
-/*----------------------------------------------------------------------*/
-
-double transreson (double width,int nchannel,int stack)	/* returns resistance in ohms */
-     /* width: in um */
-     /* nchannel: whether n or p-channel (boolean) */
-     /* stack: number of transistors in series */
+double drain_C_(
+    double width,
+    int nchannel,
+    int stack,
+    int next_arg_thresh_folding_width_or_height_cell,
+    double fold_dimension,
+    bool _is_dram,
+    bool _is_cell,
+    bool _is_wl_tr)
 {
-  double restrans;
-  restrans = (nchannel) ? Rnchannelon : Rpchannelon;
+  double width_folded_transistor, ratio_p_to_n, height_transistor_region,
+    total_drain_width, total_drain_height_for_cap_wrt_gate,
+    drain_cap_area, drain_cap_sidewall, drain_cap_wrt_gate, 
+    drain_cap_total, c_junc_area, c_junc_sidewall, c_fringe, c_overlap, 
+    drain_height_for_sidewall, drain_cap_metal_connecting_folded_transistors;
+  int number_folded_transistors;
 
-  /* calculate resistance of stack.  Unlike transres, we don't
-     multiply the stacked transistors by 0.8 */
+  c_junc_sidewall = 0.25e-15; //F/micron
+  const TechnologyParameter::DeviceType * dt;
+
+  if ((_is_dram) && (_is_cell))
+  { 
+    dt = &g_tp.dram_acc;   //DRAM cell access transistor
+  }
+  else if ((_is_dram) && (_is_wl_tr))
+  {
+    dt = &g_tp.dram_wl;    //DRAM wordline transistor
+  }
+  else if ((!_is_dram) && _is_cell)
+  {
+    dt = &g_tp.sram_cell;  // SRAM cell access transistor
+  }
+  else
+  {
+    dt = &g_tp.peri_global;
+  }
+
+  c_junc_area = dt->C_junc;
+  c_fringe    = 2*dt->C_fringe;
+  c_overlap   = 2*dt->C_overlap;
+  
+  drain_cap_metal_connecting_folded_transistors = 0;
+  //Determine the width of the transistor after folding (if it is getting folded)
+  if (next_arg_thresh_folding_width_or_height_cell == 0)
+  { //interpret fold_dimension as the
+    //the folding width threshold i.e. the value of transistor width above which the
+    //transistor gets folded
+    width_folded_transistor = fold_dimension;
+  } 
+  else
+  { //interpret fold_dimension as the height of the cell that this transistor is part of. 
+    height_transistor_region = fold_dimension - 2 * g_tp.HPOWERRAIL;
+    ratio_p_to_n = 2.0 / (2.0 + 1.0);
+    if (nchannel)
+    {
+      width_folded_transistor = (1 - ratio_p_to_n) * (height_transistor_region - g_tp.MIN_GAP_BET_P_AND_N_DIFFS);
+    }
+    else
+    {
+      width_folded_transistor = ratio_p_to_n * (height_transistor_region - g_tp.MIN_GAP_BET_P_AND_N_DIFFS);
+    }
+  }
+  number_folded_transistors = (int) (ceil(width / width_folded_transistor));
+
+  if (number_folded_transistors < 2)
+  {
+    width_folded_transistor = width;
+  }
+
+  total_drain_width = (g_tp.w_poly_contact + 2 * g_tp.spacing_poly_to_contact) + (stack - 1) * g_tp.spacing_poly_to_poly;
+  drain_height_for_sidewall = width_folded_transistor;
+  total_drain_height_for_cap_wrt_gate = width_folded_transistor + 2 * width_folded_transistor * (stack - 1);
+  if (number_folded_transistors > 1)
+  {
+    total_drain_width += (number_folded_transistors - 2) * (g_tp.w_poly_contact + 
+      2 * g_tp.spacing_poly_to_contact) + (number_folded_transistors - 1) * ((stack - 1) * 
+      g_tp.spacing_poly_to_poly);
+    if (number_folded_transistors%2 == 0)
+    {
+      drain_height_for_sidewall = 0 ;
+    }
+    total_drain_height_for_cap_wrt_gate *=  number_folded_transistors;
+    drain_cap_metal_connecting_folded_transistors = g_tp.wire_local.C_per_um * 
+      total_drain_width;
+  }
+  
+  drain_cap_area = c_junc_area * total_drain_width * width_folded_transistor;
+  drain_cap_sidewall = c_junc_sidewall * (drain_height_for_sidewall + 2 * total_drain_width);
+  drain_cap_wrt_gate = (c_fringe + c_overlap) * total_drain_height_for_cap_wrt_gate;
+
+  drain_cap_total = drain_cap_area + drain_cap_sidewall + drain_cap_wrt_gate +
+                    drain_cap_metal_connecting_folded_transistors;
+  return(drain_cap_total);
+}
+
+
+double tr_R_on(
+    double width,
+    int nchannel,
+    int stack,
+    bool _is_dram,
+    bool _is_cell,
+    bool _is_wl_tr)
+{
+  const TechnologyParameter::DeviceType * dt;
+
+  if ((_is_dram) && (_is_cell))
+  { 
+    dt = &g_tp.dram_acc;   //DRAM cell access transistor
+  }
+  else if ((_is_dram) && (_is_wl_tr))
+  {
+    dt = &g_tp.dram_wl;    //DRAM wordline transistor
+  }
+  else if ((!_is_dram) && _is_cell)
+  {
+    dt = &g_tp.sram_cell;  // SRAM cell access transistor
+  }
+  else
+  {
+    dt = &g_tp.peri_global;
+  }
+
+  double restrans = (nchannel) ? dt->R_nch_on : dt->R_pch_on;
   return (stack * restrans / width);
-
 }
 
-/*----------------------------------------------------------------------*/
 
 /* This routine operates in reverse: given a resistance, it finds
  * the transistor width that would have this R.  It is used in the
  * data wordline to estimate the wordline driver size. */
 
-double restowidth (double res,int nchannel)	/* returns width in um */
-     /* res: resistance in ohms */
-     /* nchannel: whether N-channel or P-channel */
+// returns width in um
+double R_to_w(
+    double res,
+    int   nchannel,
+    bool _is_dram,
+    bool _is_cell,
+    bool _is_wl_tr)
 {
-  double restrans;
+  const TechnologyParameter::DeviceType * dt;
 
-  restrans = (nchannel) ? Rnchannelon : Rpchannelon;
+  if ((_is_dram) && (_is_cell))
+  { 
+    dt = &g_tp.dram_acc;   //DRAM cell access transistor
+  }
+  else if ((_is_dram) && (_is_wl_tr))
+  {
+    dt = &g_tp.dram_wl;    //DRAM wordline transistor
+  }
+  else if ((!_is_dram) && (_is_cell))
+  {
+    dt = &g_tp.sram_cell;  // SRAM cell access transistor
+  }
+  else
+  {
+    dt = &g_tp.peri_global;
+  }
 
+  double restrans = (nchannel) ? dt->R_nch_on : dt->R_pch_on;
   return (restrans / res);
-
 }
 
-/*----------------------------------------------------------------------*/
 
-double horowitz (double inputramptime,double  tf,double  vs1,double  vs2,int rise)
-	/* inputramptime: input rise time */
-    /* tf: time constant of gate */
-    /* vs1, vs2: threshold voltages */
-    /* rise: whether INPUT rise or fall (boolean) */
+double pmos_to_nmos_sz_ratio(
+    bool _is_dram,
+    bool _is_wl_tr)
 {
+  double p_to_n_sizing_ratio;
+  if ((_is_dram) && (_is_wl_tr))
+  { //DRAM wordline transistor
+    p_to_n_sizing_ratio = g_tp.dram_wl.n_to_p_eff_curr_drv_ratio;
+  }
+  else
+  { //DRAM or SRAM all other transistors
+    p_to_n_sizing_ratio = g_tp.peri_global.n_to_p_eff_curr_drv_ratio;
+  }
+  return p_to_n_sizing_ratio;
+}
+
+
+// "Timing Models for MOS Circuits" by Mark Horowitz, 1984
+double horowitz(
+    double inputramptime, // input rise time
+    double tf,            // time constant of gate
+    double vs1,           // threshold voltage
+    double vs2,           // threshold voltage
+    int    rise)          // whether input rises or fall
+{
+  if (inputramptime == 0 && vs1 == vs2)
+  {
+    return tf * (vs1 < 1 ? -log(vs1) : log(vs1));
+  }
   double a, b, td;
 
   a = inputramptime / tf;
   if (rise == RISE)
-    {
-      b = 0.5;
-      td = tf * sqrt (log (vs1) * log (vs1) + 2 * a * b * (1.0 - vs1)) +
-	tf * (log (vs1) - log (vs2));
-    }
+  {
+    b = 0.5;
+    td = tf * sqrt(log(vs1)*log(vs1) + 2*a*b*(1.0 - vs1)) + tf*(log(vs1) - log(vs2));
+  }
   else
-    {
-      b = 0.4;
-      td = tf * sqrt (log (1.0 - vs1) * log (1.0 - vs1) + 2 * a * b * (vs1)) +
-	tf * (log (1.0 - vs1) - log (1.0 - vs2));
-    }
+  {
+    b = 0.4;
+    td = tf * sqrt(log(1.0 - vs1)*log(1.0 - vs1) + 2*a*b*(vs1)) + tf*(log(1.0 - vs1) - log(1.0 - vs2));
+  }
   return (td);
+}
+
+double cmos_Ileak(
+    double nWidth,
+    double pWidth,
+    bool _is_dram,
+    bool _is_cell,
+    bool _is_wl_tr)
+{
+  TechnologyParameter::DeviceType * dt;
+
+  if ((!_is_dram)&&(_is_cell))
+  { //SRAM cell access transistor
+    dt = &(g_tp.sram_cell);
+  }
+  else if ((_is_dram)&&(_is_wl_tr))
+  { //DRAM wordline transistor
+    dt = &(g_tp.dram_wl);
+  }
+  else
+  { //DRAM or SRAM all other transistors
+    dt = &(g_tp.peri_global);
+  }
+  return nWidth*dt->I_off_n + pWidth*dt->I_off_p;
+}
+
+
+double simplified_nmos_leakage(
+    double nwidth,
+    bool _is_dram,
+    bool _is_cell,
+    bool _is_wl_tr)
+{
+  TechnologyParameter::DeviceType * dt;
+
+  if ((!_is_dram)&&(_is_cell))
+  { //SRAM cell access transistor
+    dt = &(g_tp.sram_cell);
+  }
+  else if ((_is_dram)&&(_is_wl_tr))
+  { //DRAM wordline transistor
+    dt = &(g_tp.dram_wl);
+  }
+  else
+  { //DRAM or SRAM all other transistors
+    dt = &(g_tp.peri_global);
+  }
+  return nwidth * dt->I_off_n;
+}
+
+
+double simplified_pmos_leakage(
+    double pwidth,
+    bool _is_dram,
+    bool _is_cell,
+    bool _is_wl_tr)
+{
+  TechnologyParameter::DeviceType * dt;
+
+  if ((!_is_dram)&&(_is_cell))
+  { //SRAM cell access transistor
+    dt = &(g_tp.sram_cell);
+  }
+  else if ((_is_dram)&&(_is_wl_tr))
+  { //DRAM wordline transistor
+    dt = &(g_tp.dram_wl);
+  }
+  else
+  { //DRAM or SRAM all other transistors
+    dt = &(g_tp.peri_global);
+  }
+  return pwidth * dt->I_off_p;
+}
+
+
+int logical_effort(
+    int num_gates_min,
+    double g,
+    double F,
+    double * w_n,
+    double * w_p,
+    double C_load,
+    double p_to_n_sz_ratio,
+    bool   is_dram_,
+    bool   is_wl_tr_,
+    bool   never_max_)
+{
+  int num_gates = (int) (log(F) / log(fopt));
+
+  // check if num_gates is odd. if so, add 1 to make it even
+  num_gates+= (num_gates % 2) ? 1 : 0;
+  num_gates = MAX(num_gates, num_gates_min);
+
+  // recalculate the effective fanout of each stage
+  double f = pow(F, 1.0 / num_gates);
+  int    i = num_gates - 1;
+  double C_in = C_load / f;
+  w_n[i]  = (1.0 / (1.0 + p_to_n_sz_ratio)) * C_in / gate_C(1, 0, is_dram_, false, is_wl_tr_);
+  w_p[i]  = p_to_n_sz_ratio * w_n[i];
+
+  if (never_max_ == false && w_n[i] > g_tp.max_w_nmos_)
+  {
+    double C_ld = gate_C(g_tp.max_w_nmos_ + p_to_n_sz_ratio*g_tp.max_w_nmos_, 0, is_dram_, false, is_wl_tr_);
+    F = g * C_ld / gate_C(w_n[0] + w_p[0], 0, is_dram_, false, is_wl_tr_);
+    num_gates = (int) (log(F) / log(fopt)) + 1;
+    num_gates+= (num_gates % 2) ? 1 : 0;
+    num_gates = MAX(num_gates, num_gates_min);
+    f = pow(F, 1.0 / (num_gates - 1));
+    i = num_gates - 1;
+    w_n[i]  = g_tp.max_w_nmos_;
+    w_p[i]  = p_to_n_sz_ratio * w_n[i];
+  }
+
+  for (i = num_gates - 2; i >= 1; i--)
+  {
+    w_n[i] = w_n[i+1] / f;
+    w_p[i] = p_to_n_sz_ratio * w_n[i];
+  }
+
+  assert(num_gates <= MAX_NUMBER_GATES_STAGE);
+  return num_gates;
 }

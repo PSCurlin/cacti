@@ -1,47 +1,59 @@
-LIBS = -lm
-#FLAGS = -Wall -O2 -fomit-frame-pointer -msse -march=athlon
-#FLAGS = -Wall -O0
-CC = gcc
+TARGET = cacti
 
-SRCS = main.c time.c area.c io.c leakage.c basic_circuit.c def.h areadef.h leakage.h basic_circuit.h io.h time.h cacti_interface.h
+.PHONY: all depend clean $(TARGET)
 
-OBJS = main.o time.o area.o io.o leakage.o basic_circuit.o
+ifndef NTHREADS
+  NTHREADS = 4
+endif
 
-all: cacti
+ifeq ($(TAG), dbg)
+  FLAGS = -m32 -ggdb -g -Wall -O0 -DNTHREADS=$(NTHREADS)
+else
+  FLAGS = -m32 -O3 -DNDEBUG  -DNTHREADS=$(NTHREADS)
+#  FLAGS = -O3 -DNDEBUG -msse2 -mfpmath=sse 
+endif
 
-pythonlib : time.o area.o io.o leakage.o basic_circuit.o cacti_wrap.o
-		gcc -shared $(FLAGS) area.o time.o leakage.o basic_circuit.o io.o cacti_wrap.o -L /usr/lib/python2.4/config -lpython2.4 -o _cacti.so
+CC    = g++
+CPP   = g++
+LIBS  = -lm
 
-cacti : main.o time.o area.o io.o leakage.o basic_circuit.o
-	  $(CC) $(FLAGS) $(OBJS) -o cacti $(LIBS)
+SRCS = main.c time.c io.c technology.c basic_circuit.c 
+OBJS = $(patsubst %.c,%.o,$(SRCS))
+CPP_SRCS = parameter.cpp area.cpp crossbar.cpp htree.cpp decoder.cpp
+CPP_OBJS = $(patsubst %.cpp,%.cc.o,$(CPP_SRCS))
+PYTHONLIB_SRCS = $(patsubst main.c, ,$(SRCS)) cacti_wrap.c
+PYTHONLIB_OBJS = $(patsubst %.c,%.o,$(PYTHONLIB_SRCS)) 
+INCLUDES       = -I /usr/include/python2.4 -I /usr/lib/python2.4/config
 
-main.o : main.c def.h areadef.h leakage.h basic_circuit.h
-	  $(CC) $(FLAGS) -c main.c -o main.o
+all: $(TARGET)
 
-leakage.o : leakage.h leakage.c
-	  $(CC) $(FLAGS) -c leakage.c -o leakage.o
+pythonlib: $(PYTHONLIB_OBJS) $(CPP_OBJS)
+	$(CC) -shared $(FLAGS) $(PYTHONLIB_OBJS) $(CPP_OBJS) -L /usr/lib/python2.4/config -lpython2.4 -o _cacti.so
 
-time.o :  time.c def.h areadef.h leakage.h basic_circuit.h cacti_interface.h
-	   $(CC) $(FLAGS) -c time.c -o time.o
+$(TARGET): $(OBJS) $(CPP_OBJS)
+	$(CPP) $(FLAGS) $(OBJS) $(CPP_OBJS) -o $@ $(LIBS) -pthread
 
-area.o : area.c def.h areadef.h cacti_interface.h
-	   $(CC) $(FLAGS) -c area.c -o area.o 
-
-io.o : def.h io.c areadef.h cacti_interface.h
-	  $(CC) $(FLAGS) -c io.c -o io.o
-
-basic_circuit.o : basic_circuit.h basic_circuit.c
-		   gcc $(FLAGS) -c basic_circuit.c -o basic_circuit.o 
-
-cacti_wrap.o :  cacti_wrap.c
-		$(CC) -c io.c area.c time.c \
-		basic_circuit.c leakage.c cacti_wrap.c \
-		-I /usr/include/python2.4 \
-		-I /usr/lib/python2.4/config
+cacti_wrap.o: cacti_wrap.c
+	$(CC) $(FLAGS) -c $< -o $@ $(INCLUDES)
 
 cacti_wrap.c: cacti.i
-			swig -python cacti.i
+	swig -classic -python -c++ -o $@ $< 
+
+$(OBJS): %.o: %.c
+	$(CC) $(FLAGS) -c $< -o $@
+
+$(CPP_OBJS): %.cc.o: %.cpp
+	$(CPP) $(FLAGS) -c $< -o $@
+
+#%.o: %.c %.cpp
+#	$(CC) $(FLAGS) -c $< -o $@
 
 clean:
-	  rm *.o cacti cache_params.aux core
+	rm -rf *.o _cacti.so cacti.py $(TARGET) cacti_wrap.c
+
+depend:
+	makedepend -p"./" -f makefile $(SRCS)
+
+
+# DO NOT DELETE
 

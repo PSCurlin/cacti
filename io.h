@@ -1,6 +1,6 @@
 /*------------------------------------------------------------
- *                              CACTI 4.0
- *         Copyright 2005 Hewlett-Packard Development Corporation
+ *                              CACTI 5.3
+ *         Copyright 2008 Hewlett-Packard Development Corporation
  *                         All Rights Reserved
  *
  * Permission to use, copy, and modify this software and its documentation is
@@ -38,12 +38,13 @@
  * ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
  * SOFTWARE.
  *------------------------------------------------------------*/
+#ifndef __IO_H__
+#define __IO_H__
+
+#include "const.h"
+#include "cacti_interface.h"
+
+void output_data_csv(const final_results & fin_res);
 
 
-int input_data(int argc,char *argv[]);
-void output_data(result_type *result,arearesult_type *arearesult, parameter_type *parameters);
-//void output_data_csv(total_result_type* result);
-void init_tech_params_default_process();
-void output_area_components(arearesult_type *arearesult, parameter_type *parameters);
-void output_time_components(result_type *result,parameter_type *parameters);
-
+#endif

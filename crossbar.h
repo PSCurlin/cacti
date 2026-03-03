@@ -38,98 +38,49 @@
  * ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
  * SOFTWARE.
  *------------------------------------------------------------*/
-#ifndef __BASIC_CIRCUIT_H__
-#define __BASIC_CIRCUIT_H__
+#ifndef __CROSSBAR_H__
+#define __CROSSBAR_H__
 
-#include "const.h"
-#include "cacti_interface.h"
+#include "area.h"
+#include "decoder.h"
+#include "parameter.h"
+#include <vector>
 
-int powers (int base, int n);
-bool is_pow2(int64_t val);
-uint32_t _log2(uint64_t num);
+using namespace std;
 
 
-double logtwo (double x);
-
-double gate_C(
-    double width, 
-    double wirelength,
-    bool _is_dram = false,
-    bool _is_sram = false,
-    bool _is_wl_tr = false);
-
-double gate_C_pass(
-    double width,
-    double wirelength,
-    bool   _is_dram = false,
-    bool   _is_sram = false,
-    bool   _is_wl_tr = false);
-
-double drain_C_(
-    double width,
-    int nchannel,
-    int stack,
-    int next_arg_thresh_folding_width_or_height_cell,
-    double fold_dimension,
-    bool _is_dram = false,
-    bool _is_sram = false,
-    bool _is_wl_tr = false);
+class Crossbar
+{
+ public:
+  Crossbar(
+      int num_in_ports,
+      int num_out_ports,
+      int num_signals_per_port,
+      double c_output_line_load,
+      bool is_dram_);
+  void compute_widths();
+  double compute_delay(double inrisetime);
+  void compute_area();
  
-double tr_R_on(
-    double width,
-    int nchannel,
-    int stack,
-    bool _is_dram = false,
-    bool _is_sram = false,
-    bool _is_wl_tr = false);
+ public:
+  int num_in_ports;
+  int num_out_ports;
+  int num_signals_per_port;
+  int min_number_gates;
+  int number_gates_output_line_tristate_buffer;
+  Driver crossbar_input_line_driver;
+  vector<double> width_output_line_tristate_buffer_n;
+  vector<double> width_output_line_tristate_buffer_p;
+  double width_output_line_tristate_buffer_nor2_n;
+  double width_output_line_tristate_buffer_nor2_p;
+  double c_output_line_load;
+  double delay;
+  powerDef power;
 
-double R_to_w(
-    double res,
-    int nchannel,
-    bool _is_dram = false,
-    bool _is_sram = false,
-    bool _is_wl_tr = false);
-
-double horowitz (
-    double inputramptime,
-    double tf,
-    double vs1,
-    double vs2,
-    int rise);
-
-double pmos_to_nmos_sz_ratio(
-    bool _is_dram = false,
-    bool _is_wl_tr = false);
-
-double simplified_nmos_leakage(
-    double nwidth,
-    bool _is_dram = false,
-    bool _is_cell = false,
-    bool _is_wl_tr = false);
-
-double simplified_pmos_leakage(
-    double pwidth,
-    bool _is_dram = false,
-    bool _is_cell = false,
-    bool _is_wl_tr = false);
+  bool is_dram;
+  Area area;
+};
 
 
-double cmos_Ileak(
-    double nWidth,
-    double pWidth,
-    bool _is_dram = false,
-    bool _is_cell = false,
-    bool _is_wl_tr = false);
-
-int logical_effort(
-    int    num_gates_min,
-    double g,
-    double F,
-    double * w_n,
-    double * w_p,
-    double C_load,
-    double p_to_n_sz_ratio,
-    bool   is_dram_,
-    bool   is_wl_tr_,
-    bool   never_max_ = false);
 #endif
+

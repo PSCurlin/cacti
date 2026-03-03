@@ -1,6 +1,6 @@
 /*------------------------------------------------------------
- *                              CACTI 4.0
- *         Copyright 2005 Hewlett-Packard Development Corporation
+ *                              CACTI 5.3
+ *         Copyright 2008 Hewlett-Packard Development Corporation
  *                         All Rights Reserved
  *
  * Permission to use, copy, and modify this software and its documentation is
@@ -39,5666 +39,3305 @@
  * SOFTWARE.
  *------------------------------------------------------------*/
 
+#include <time.h>
 #include <math.h>
-#include "def.h"
-#include "areadef.h"
-#include "leakage.h"
 #include "basic_circuit.h"
-#include "stdio.h"
 
-//extern double calculate_area (area_type, double);
+#include "time.h"
+#include "const.h"
+#include "area.h"
+#include "decoder.h"
+#include "htree.h"
+#include "crossbar.h"
+#include "parameter.h"
 
-//v4.1: Earlier all the dimensions (length/width/thickness) of transistors and wires and
-//all delays were calculated for the 0.8 micron process and then scaled to the input techology. 
-//Now all dimensions and delays are calculated directly for the input technology. 
+#include <pthread.h>
+#include <iostream>
+#include <algorithm>
 
-int force_tag, force_tag_size;
+using namespace std;
 
-void reset_tag_device_widths() {
+const uint32_t nthreads = NTHREADS;
 
-	 Wtdecdrivep_second= 0.0;
-	 Wtdecdriven_second= 0.0;
-	 Wtdecdrivep_first= 0.0;
-	 Wtdecdriven_first= 0.0;
-	 Wtdec3to8n = 0.0;
-	 Wtdec3to8p = 0.0;
-	 WtdecNORn  = 0.0;
-	 WtdecNORp  = 0.0;
-	 Wtdecinvn  = 0.0;
-	 Wtdecinvp  = 0.0;
-	 WtwlDrvn = 0.0;
-	 WtwlDrvp = 0.0;
-
-	 Wtbitpreequ= 0.0;
-	 Wtiso= 0.0;
-	 Wtpch= 0.0;
-	 Wtiso= 0.0;
-	 WtsenseEn= 0.0;
-	 WtsenseN= 0.0;
-	 WtsenseP= 0.0;
-	 WtoBufN = 0.0;
-	 WtoBufP = 0.0;
-	 WtsPch= 0.0;
-
-	 WtpchDrvp= 0.0; WtpchDrvn= 0.0;
-	 WtisoDrvp= 0.0; WtisoDrvn= 0.0;
-	 WtspchDrvp= 0.0; WtspchDrvn= 0.0;
-	 WtsenseEnDrvp= 0.0; WtsenseEnDrvn= 0.0;
-
-	 WtwrtMuxSelDrvn= 0.0;
-	 WtwrtMuxSelDrvp= 0.0;
-}
-void reset_data_device_widths()
+inline static double _abs(double a)
 {
-	 Waddrdrvn1 = 0.0;
-	 Waddrdrvp1= 0.0;
-	 Waddrdrvn2= 0.0;
-	 Waddrdrvp2= 0.0;
-
-	 Wdecdrivep_second = 0.0;
-	 Wdecdriven_second = 0.0;
-	 Wdecdrivep_first = 0.0;
-	 Wdecdriven_first = 0.0;
-	 Wdec3to8n = 0.0;
-	 Wdec3to8p = 0.0;
-	 WdecNORn  = 0.0;
-	 WdecNORp  = 0.0;
-	 Wdecinvn  = 0.0;
-	 Wdecinvp  = 0.0;
-	 WwlDrvn = 0.0;
-	 WwlDrvp = 0.0;
-
-	 
-
-	 Wbitpreequ= 0.0;
-
-	 Wiso = 0.0;
-	 Wpch= 0.0;
-	 Wiso= 0.0;
-	 WsenseEn= 0.0;
-	 WsenseN= 0.0;
-	 WsenseP= 0.0;
-	 WoBufN = 0.0;
-	 WoBufP = 0.0;
-	 WsPch= 0.0;
-
-	 WpchDrvp= 0.0; WpchDrvn= 0.0;
-	 WisoDrvp= 0.0; WisoDrvn= 0.0;
-	 WspchDrvp= 0.0; WspchDrvn= 0.0;
-	 WsenseEnDrvp= 0.0; WsenseEnDrvn= 0.0;
-
-	 WwrtMuxSelDrvn= 0.0;
-	 WwrtMuxSelDrvp= 0.0;
-	 
-	 WmuxdrvNANDn    = 0.0;
-	 WmuxdrvNANDp    = 0.0;
-	 WmuxdrvNORn	= 0.0;
-	 WmuxdrvNORp	= 0.0;
-	 Wmuxdrv3n	= 0.0;
-	 Wmuxdrv3p	= 0.0;
-	 Woutdrvseln	= 0.0;
-	 Woutdrvselp	= 0.0;
-
-	 Woutdrvnandn= 0.0;
-	 Woutdrvnandp= 0.0;
-	 Woutdrvnorn	= 0.0;
-	 Woutdrvnorp	= 0.0;
-	 Woutdrivern	= 0.0;
-	 Woutdriverp	= 0.0;
+  return (a > 0) ? a : (0-a);
 }
 
-void compute_device_widths(int C,int B,int A,int fullyassoc, int Ndwl,int Ndbl,double Nspd)
+
+void *calc_time_mt_wrapper(void * void_obj)
 {
-	int rows, cols, numstack,l_predec_nor_v,l_predec_nor_h;
-	double desiredrisetime, Rpdrive, Cline, Cload;
-	double effWdecNORn,effWdecNORp,effWdec3to8n,effWdec3to8p, wire_res, wire_cap;
-	int l_outdrv_v,l_outdrv_h;
-	//int rows_fa_subarray,cols_fa_subarray, tagbits;
-	int tagbits;
-	int horizontal_edge = 0;
-	int nr_subarrays_left = 0, v_or_h = 0;
-	int horizontal_step = 0, vertical_step = 0;
-	int h_inv_predecode = 0, v_inv_predecode = 0;
-
-	double previous_ndriveW = 0, previous_pdriveW = 0, current_ndriveW = 0, current_pdriveW = 0;
-	int i;
-
-    //v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-    //the final int value is the correct one 
-	//rows = C/(CHUNKSIZE*B*A*Ndbl*Nspd);
-	rows = (int) (C/(CHUNKSIZE*B*A*Ndbl*Nspd) + EPSILON);
-	//cols = CHUNKSIZE*B*A*Nspd/Ndwl;
-	cols = (int) (CHUNKSIZE*B*A*Nspd/Ndwl + EPSILON);
- 
-	// Wordline capacitance to determine the wordline driver size
-	/* Use a first-order approx */
-	desiredrisetime = krise*log((double)(cols))/2.0;
-	/*dt: I'm changing this back to what's in CACTI (as opposed to eCacti), i.e. counting the short poly connection to the pass transistors*/
-	Cline = (gatecappass(Wmemcella,(BitWidth-2*Wmemcella)/2.0)+ gatecappass(Wmemcella,(BitWidth-2*Wmemcella)/2.0)+ Cwordmetal)*cols;
-	Rpdrive = desiredrisetime/(Cline*log(VSINV)*-1.0);
-	WwlDrvp = restowidth(Rpdrive,PCH);
-	if (WwlDrvp > Wworddrivemax) {
-		WwlDrvp = Wworddrivemax;
-	}
-
-	/* Now that we have a reasonable psize, do the rest as before */
-	/* If we keep the ratio the same as the tag wordline driver,
-	   the threshold voltage will be close to VSINV */
-
-	/* assuming that nsize is half the psize */
-	WwlDrvn = WwlDrvp/2;
-
-	// Size of wordline
-	// Sizing ratio for optimal delay is 3-4.
-	Wdecinvn = (WwlDrvp + WwlDrvn) * SizingRatio * 1/3;
-	Wdecinvp = (WwlDrvp + WwlDrvn) * SizingRatio * 2/3;
-
-	// determine size of nor and nand gates in the decoder
-
-	// width of NOR driving decInv -
-	// effective width (NORp + NORn = Cout/SizingRatio( FANOUT))
-	// Cout = Wdecinvn + Wdecinvp; SizingRatio = 3;
-	// nsize = effWidth/3; psize = 2*effWidth/3;
-
-	numstack =
-	       (int)ceil((1.0/3.0)*logtwo( (double)((double)C/(double)(B*A*Ndbl*Nspd))));
-	if (numstack==0) numstack = 1;
-
-	if (numstack>5) numstack = 5;
-
-	effWdecNORn = (Wdecinvn + Wdecinvp)*SizingRatio/3;
-	effWdecNORp = 2*(Wdecinvn + Wdecinvp)*SizingRatio/3;
-	WdecNORn = effWdecNORn;
-	WdecNORp = effWdecNORp * numstack;
-
-	/* second stage: driving a bunch of nor gates with a nand */
-	
-	/*dt: The *8 is there because above we mysteriously divide the capacity in BYTES by the number of BITS per wordline */
-	l_predec_nor_v = rows*CHUNKSIZE; 
-	/*dt: If we follow the original drawings from the TR's, then there is almost no horizontal wires, only the poly for contacting
-	the nor gates. The poly part we don't model right now */
-	l_predec_nor_h = 0;
-	
-	//v4.1: Scaling the poly length to the input tech node.
-	//Cline = gatecap(WdecNORn+WdecNORp,((numstack*40)+20.0))*rows/8 +
-	  			//GlobalCbitmetal*(l_predec_nor_v)+GlobalCwordmetal*(l_predec_nor_h);
-
-	Cline = gatecap(WdecNORn+WdecNORp,((numstack*40 / FUDGEFACTOR)+20.0 / FUDGEFACTOR))*rows/8 +
-	  			GlobalCbitmetal*(l_predec_nor_v)+GlobalCwordmetal*(l_predec_nor_h);
-
-	Cload = Cline / gatecap(1.0,0.0);
-
-	effWdec3to8n = Cload*SizingRatio/3;
-	effWdec3to8p = 2*Cload*SizingRatio/3;
-
-	Wdec3to8n = effWdec3to8n * 3; // nand3 gate
-	Wdec3to8p = effWdec3to8p;
-
-	// size of address drivers before decoders
-	/* First stage: driving the decoders */
-	//v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-    //the final int value is the correct one 
-	//horizontal_edge = CHUNKSIZE*B*A*Nspd;
-	horizontal_edge = (int) (CHUNKSIZE*B*A*Nspd + EPSILON);
-
-	previous_ndriveW = Wdec3to8n;
-	previous_pdriveW = Wdec3to8p;
-
-	if(Ndwl*Ndbl==1 ) {
-	    wire_cap = GlobalCwordmetal*horizontal_edge;
-	    wire_res = 0.5*GlobalRwordmetal*horizontal_edge;
-		Cdectreesegments[0] = GlobalCwordmetal*horizontal_edge;
-		Rdectreesegments[0] = 0.5*GlobalRwordmetal*horizontal_edge;
-
-		Cline = 4*gatecap(previous_ndriveW+previous_pdriveW,10.0 / FUDGEFACTOR)+GlobalCwordmetal*horizontal_edge;
-		Cload = Cline / gatecap(1.0,0.0);
-
-		current_ndriveW = Cload*SizingRatio/3;
-		current_pdriveW = 2*Cload*SizingRatio/3;
-
-		nr_dectreesegments = 0;
-	}
-	else if(Ndwl*Ndbl==2 || Ndwl*Ndbl==4) {
-	    wire_cap = GlobalCwordmetal*horizontal_edge;
-	    wire_res = 0.5*GlobalRwordmetal*horizontal_edge;
-		Cdectreesegments[0] = GlobalCwordmetal*horizontal_edge;
-		Rdectreesegments[0] = 0.5*GlobalRwordmetal*horizontal_edge;
-
-		Cline = 4*gatecap(previous_ndriveW+previous_pdriveW,10.0 / FUDGEFACTOR)+GlobalCwordmetal*horizontal_edge;
-		Cload = Cline / gatecap(1.0,0.0);
-
-		current_ndriveW = Cload*SizingRatio/3;
-		current_pdriveW = 2*Cload*SizingRatio/3;
-
-		nr_dectreesegments = 0;
-	}
-	else {
-		/*dt: For the critical path  in an H-Tree, the metal */
-
-		nr_subarrays_left = Ndwl* Ndbl;
-		/*all the wires go to quads of subarrays where they get predecoded*/
-		nr_subarrays_left /= 4;
-		//v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-        //the final int value is the correct one 
-		//horizontal_step = CHUNKSIZE*B*A*Nspd/Ndwl;
-		horizontal_step = (int) (CHUNKSIZE*B*A*Nspd/Ndwl + EPSILON);
-		//vertical_step = C/(B*A*Ndbl*Nspd);
-		vertical_step = (int) (C/(B*A*Ndbl*Nspd) + EPSILON);
-		h_inv_predecode = horizontal_step;
-
-		Cdectreesegments[0] = GlobalCwordmetal*horizontal_step;
-		Rdectreesegments[0] = 0.5*GlobalRwordmetal*horizontal_step;
-		Cline = 4*gatecap(previous_ndriveW+previous_pdriveW,10.0 / FUDGEFACTOR)+GlobalCwordmetal*horizontal_step;
-		Cload = Cline / gatecap(1.0,0.0);
-
-		current_ndriveW = Cload*SizingRatio/3;
-		current_pdriveW = 2*Cload*SizingRatio/3;
-		WdecdrivetreeN[0] = current_ndriveW;
-		nr_dectreesegments = 1;
-
-		horizontal_step *= 2;
-		v_or_h = 1; // next step is vertical
-		
-		while(nr_subarrays_left > 1) {
-			previous_ndriveW = current_ndriveW;
-			previous_pdriveW = current_pdriveW;
-			nr_dectreesegments++;
-			if(v_or_h) {
-				v_inv_predecode += vertical_step;
-				Cdectreesegments[nr_dectreesegments-1] = GlobalCbitmetal*vertical_step;
-				Rdectreesegments[nr_dectreesegments-1] = 0.5*GlobalRbitmetal*vertical_step;
-				Cline = gatecap(previous_ndriveW+previous_pdriveW,0)+GlobalCbitmetal*vertical_step;
-				v_or_h = 0;
-				vertical_step *= 2;
-				nr_subarrays_left /= 2;
-			}
-			else {
-				h_inv_predecode += horizontal_step;
-				Cdectreesegments[nr_dectreesegments-1] = GlobalCwordmetal*horizontal_step;
-				Rdectreesegments[nr_dectreesegments-1] = 0.5*GlobalRwordmetal*horizontal_step;
-				Cline = gatecap(previous_ndriveW+previous_pdriveW,0)+GlobalCwordmetal*horizontal_step;
-				v_or_h = 1;
-				horizontal_step *= 2;
-				nr_subarrays_left /= 2;
-			}
-			Cload = Cline / gatecap(1.0,0.0);
-
-			current_ndriveW = Cload*SizingRatio/3;
-			current_pdriveW = 2*Cload*SizingRatio/3;
-
-			WdecdrivetreeN[nr_dectreesegments-1] = current_ndriveW;
-		}
-
-		if(nr_dectreesegments >= 10) {
-			printf("Too many segments in the data decoder H-tree. Overflowing the preallocated array!");
-			exit(1);
-		}
-		wire_cap = GlobalCbitmetal*v_inv_predecode + GlobalCwordmetal*h_inv_predecode;
-		wire_res = 0.5*(GlobalRbitmetal*v_inv_predecode + GlobalRwordmetal*h_inv_predecode);
-
-
-	}
-
-	Wdecdriven_second = current_ndriveW;
-	Wdecdrivep_second = current_pdriveW;
-
-	// Size of second driver
-
-	Wdecdriven_first = (Wdecdriven_second + Wdecdrivep_second)*SizingRatio/3;
-	Wdecdrivep_first = 2*(Wdecdriven_second + Wdecdrivep_second)*SizingRatio/3;
-
-	// these are the widths of the devices of dataoutput devices
-	// will be used in the data_senseamplifier_data and dataoutput_data functions
-
-	l_outdrv_v = 0;
-	l_outdrv_h = 0;
-
-	if(!fullyassoc) {
-
-		//v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-        //the final int value is the correct one 
-		//rows =  (C/(B*A*Ndbl*Nspd));
-		//cols = (CHUNKSIZE*B*A*Nspd/Ndwl);
-		rows =  (int) (C/(B*A*Ndbl*Nspd) + EPSILON);
-		cols = (int) (CHUNKSIZE*B*A*Nspd/Ndwl + EPSILON);
-	}
-	else {
-		rows = (C/(B*Ndbl));
-		if(!force_tag) {
-    		//tagbits = ADDRESS_BITS + EXTRA_TAG_BITS-(int)logtwo((double)B);
-			tagbits = ADDRESS_BITS + EXTRA_TAG_BITS-(int)(logtwo((double)B) + EPSILON);
-		}
-		else {
-			tagbits = force_tag_size;
-		}
-        cols = (CHUNKSIZE*B)+tagbits;
-	}
-
-	    /* calculate some layout info */
-		
-
-	if(Ndwl*Ndbl==1) {
-	    l_outdrv_v= 0;
-	    l_outdrv_h= cols;
-
-		Coutdrvtreesegments[0] = GlobalCwordmetal*cols;
-		Routdrvtreesegments[0] = 0.5*GlobalRwordmetal*cols;
-
-		Cline = gatecap(Wsenseextdrv1n+Wsenseextdrv1p,10.0 / FUDGEFACTOR)+GlobalCwordmetal*cols;
-		Cload = Cline / gatecap(1.0,0.0);
-
-		current_ndriveW = Cload*SizingRatio/3;
-		current_pdriveW = 2*Cload*SizingRatio/3;
-
-		nr_outdrvtreesegments = 0;
-	}
-	else if(Ndwl*Ndbl==2) {
-	    l_outdrv_v= 0;
-	    l_outdrv_h= 2*cols;
-
-		Coutdrvtreesegments[0] = GlobalCwordmetal*2*cols;
-		Routdrvtreesegments[0] = 0.5*GlobalRwordmetal*2*cols;
-
-		Cline = gatecap(Wsenseextdrv1n+Wsenseextdrv1p,10.0/ FUDGEFACTOR)+GlobalCwordmetal*2*cols;
-		Cload = Cline / gatecap(1.0,0.0);
-
-		current_ndriveW = Cload*SizingRatio/3;
-		current_pdriveW = 2*Cload*SizingRatio/3;
-
-		nr_outdrvtreesegments = 0;
-	}
-	else if(Ndwl*Ndbl>2) {
-		nr_subarrays_left = Ndwl* Ndbl;
-		nr_subarrays_left /= 2;
-		/*dt: assuming the sense amps are in the middle of each subarray */
-		horizontal_step = cols/2;
-		vertical_step = rows/2;
-		l_outdrv_h = horizontal_step;
-
-		Coutdrvtreesegments[0] = GlobalCwordmetal*horizontal_step;
-		Routdrvtreesegments[0] = 0.5*GlobalRwordmetal*horizontal_step;
-		nr_outdrvtreesegments = 1;
-
-		horizontal_step *= 2;
-		v_or_h = 1; // next step is vertical
-		
-		while(nr_subarrays_left > 1) {
-			nr_outdrvtreesegments++;
-			if(v_or_h) {
-				l_outdrv_v += vertical_step;
-
-				Coutdrvtreesegments[nr_outdrvtreesegments-1] = GlobalCbitmetal*vertical_step;
-				Routdrvtreesegments[nr_outdrvtreesegments-1] = 0.5*GlobalRbitmetal*vertical_step;
-
-				v_or_h = 0;
-				vertical_step *= 2;
-				nr_subarrays_left /= 2;
-			}
-			else {
-				l_outdrv_h += horizontal_step;
-
-				Coutdrvtreesegments[nr_outdrvtreesegments-1] = GlobalCwordmetal*horizontal_step;
-				Routdrvtreesegments[nr_outdrvtreesegments-1] = 0.5*GlobalRwordmetal*horizontal_step;
-
-				v_or_h = 1;
-				horizontal_step *= 2;
-				nr_subarrays_left /= 2;
-			}
-		}
-
-		/*dt: Now that we have all the H-tree segments for the output tree, 
-		we can walk it in reverse and calc the gate widths*/
-
-		previous_ndriveW = Wsenseextdrv1n;
-		previous_pdriveW = Wsenseextdrv1p;
-		for(i = nr_outdrvtreesegments-1;i>0;i--) {
-			Cline = gatecap(previous_ndriveW+previous_pdriveW,0)+Coutdrvtreesegments[i];
-			Cload = Cline / gatecap(1.0,0.0);
-
-			current_ndriveW = Cload*SizingRatio/3;
-			current_pdriveW = 2*Cload*SizingRatio/3;
-
-			WoutdrvtreeN[i] = current_ndriveW;
-
-			previous_ndriveW = current_ndriveW;
-			previous_pdriveW = current_pdriveW;
-		}
-	}
-	
-  	if(nr_outdrvtreesegments >= 20) {
-			printf("Too many segments in the output H-tree. Overflowing the preallocated array!");
-			exit(1);
-		}
-	// typical width of gate considered for the estimating val of draincap.
-	Cload = gatecap(previous_ndriveW+previous_pdriveW,0) + Coutdrvtreesegments[0] + 
-		   (draincap(5.0/ FUDGEFACTOR,NCH,1)+draincap(5.0/ FUDGEFACTOR,PCH,1))*A*muxover;
-
-	Woutdrivern = 	(Cload/gatecap(1.0,0.0))*SizingRatio/3;
-	Woutdriverp = 	(Cload/gatecap(1.0,0.0))*SizingRatio*2/3;
-
-	// eff load for nor gate = gatecap(drv_p);
-	// factor of 2 is needed to account for series nmos transistors in nor2
-	Woutdrvnorp = 2*Woutdriverp*SizingRatio*2/3;
-	Woutdrvnorn = Woutdriverp*SizingRatio/3;
-
-	// factor of 2 is needed to account for series nmos transistors in nand2
-	Woutdrvnandp = Woutdrivern*SizingRatio*2/3;
-	Woutdrvnandn = 2*Woutdrivern*SizingRatio/3;
-
-	Woutdrvselp = (Woutdrvnandp + Woutdrvnandn) * SizingRatio*2/3;
-	Woutdrvseln = (Woutdrvnandp + Woutdrvnandn) * SizingRatio/3;
-
-}
-
-
-void compute_tag_device_widths(int C,int B,int A,int Ntspd,int Ntwl,int Ntbl,double NSubbanks)
-{
-
-	int rows,cols, tagbits, numstack,l_predec_nor_v,l_predec_nor_h;
-	double Cline, Cload, Rpdrive,desiredrisetime;
-	double effWtdecNORn,effWtdecNORp,effWtdec3to8n,effWtdec3to8p, wire_res, wire_cap;
-	int horizontal_edge = 0;
-	int nr_subarrays_left = 0, v_or_h = 0;
-	int horizontal_step = 0, vertical_step = 0;
-	int h_inv_predecode = 0, v_inv_predecode = 0;
-
-	double previous_ndriveW = 0, previous_pdriveW = 0, current_ndriveW = 0, current_pdriveW = 0;
-
-	rows = C/(CHUNKSIZE*B*A*Ntbl*Ntspd);
-	if(!force_tag) {
-		//v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-		//the final int value is the correct one 
-		//tagbits = ADDRESS_BITS + EXTRA_TAG_BITS-(int)logtwo((double)C)+(int)logtwo((double)A)-(int)(logtwo(NSubbanks));
-		tagbits = (int) (ADDRESS_BITS + EXTRA_TAG_BITS-(int)logtwo((double)C)+(int)logtwo((double)A)-(int)(logtwo(NSubbanks)) + EPSILON);
-	}
-	else {
-		tagbits = force_tag_size;
-	}
-	cols = tagbits * A * Ntspd/Ntwl;
-
-    // capacitive load on the wordline - C_int + C_memCellLoad * NCells
-	Cline = (gatecappass(Wmemcella,(BitWidth-2*Wmemcella)/2.0)+
-			 gatecappass(Wmemcella,(BitWidth-2*Wmemcella)/2.0)+ TagCwordmetal)*cols;
-
-	/*dt: changing the calculations for the tag wordline to be the same as for the data wordline*/
-	/* Use a first-order approx */
-	desiredrisetime = krise*log((double)(cols))/2.0;
-
-	Rpdrive = desiredrisetime/(Cline*log(VSINV)*-1.0);
-	WtwlDrvp = restowidth(Rpdrive,PCH);
-	if (WtwlDrvp > Wworddrivemax) {
-		WtwlDrvp = Wworddrivemax;
-	}
-
-	WtwlDrvn = WtwlDrvp/2;
-
-	Wtdecinvn = (WtwlDrvn + WtwlDrvp)*SizingRatio*1/3;
-	Wtdecinvp = (WtwlDrvn + WtwlDrvp)*SizingRatio*2/3;
-
-	// determine widths of nand, nor gates in the tag decoder
-	// width of NOR driving decInv -
-	// effective width (NORp + NORn = Cout/SizingRatio( FANOUT))
-	// Cout = Wdecinvn + Wdecinvp; SizingRatio = 3;
-	// nsize = effWidth/3; psize = 2*effWidth/3;
-	numstack =
-	    (int)ceil((1.0/3.0)*logtwo( (double)((double)C/(double)(B*A*Ntbl*Ntspd))));
-	if (numstack==0) numstack = 1;
-	if (numstack>5) numstack = 5;
-
-	effWtdecNORn = (Wtdecinvn + Wtdecinvp)*SizingRatio/3;
-	effWtdecNORp = 2*(Wtdecinvn + Wtdecinvp)*SizingRatio/3;
-	WtdecNORn = effWtdecNORn;
-	WtdecNORp = effWtdecNORp * numstack;
-
-	/*dt: The *8 is there because above we mysteriously divide the capacity in BYTES by the number of BITS per wordline */
-	l_predec_nor_v = rows*8; 
-	/*dt: If we follow the original drawings from the TR's, then there is almost no horizontal wires, only the poly for contacting
-	the nor gates. The poly part we don't model right now */
-	l_predec_nor_h = 0;
-
-	// find width of the nand gates in the 3-8 decoders
-	Cline = gatecap(WtdecNORn+WtdecNORp,((numstack*40)/ FUDGEFACTOR + 20.0 / FUDGEFACTOR))*rows/8 +
-           GlobalCbitmetal*(l_predec_nor_v) + GlobalCwordmetal*(l_predec_nor_h);
-
-	Cload = Cline / gatecap(1.0,0.0);
-
-    effWtdec3to8n = Cload*SizingRatio/3;
-	effWtdec3to8p = 2*Cload*SizingRatio/3;
-
-	Wtdec3to8n = effWtdec3to8n * 3; // nand3 gate
-	Wtdec3to8p = effWtdec3to8p;
-
-	horizontal_edge = cols*Ntwl;
-
-	previous_ndriveW = Wtdec3to8n;
-	previous_pdriveW = Wtdec3to8p;
-
-    if(Ntwl*Ntbl==1 ) {
-        wire_cap = GlobalCwordmetal*horizontal_edge;
-        wire_res = 0.5*GlobalRwordmetal*horizontal_edge;
-
-		Ctdectreesegments[0] = GlobalCwordmetal*horizontal_edge;
-		Rtdectreesegments[0] = 0.5*GlobalRwordmetal*horizontal_edge;
-
-		Cline = 4*gatecap(previous_ndriveW+previous_pdriveW,10.0 / FUDGEFACTOR)+GlobalCwordmetal*horizontal_edge;
-		Cload = Cline / gatecap(1.0,0.0);
-
-		current_ndriveW = Cload*SizingRatio/3;
-		current_pdriveW = 2*Cload*SizingRatio/3;
-
-		nr_tdectreesegments = 0;
-    }
-    else if(Ntwl*Ntbl==2 || Ntwl*Ntbl==4) {
-        wire_cap = GlobalCwordmetal*0.5*horizontal_edge;
-        wire_res = 0.5*GlobalRwordmetal*0.5*horizontal_edge;
-
-		Ctdectreesegments[0] = GlobalCwordmetal*horizontal_edge;
-		Rtdectreesegments[0] = 0.5*GlobalRwordmetal*horizontal_edge;
-
-		Cline = 4*gatecap(previous_ndriveW+previous_pdriveW,10.0 / FUDGEFACTOR)+GlobalCwordmetal*horizontal_edge;
-		Cload = Cline / gatecap(1.0,0.0);
-
-		current_ndriveW = Cload*SizingRatio/3;
-		current_pdriveW = 2*Cload*SizingRatio/3;
-
-		nr_tdectreesegments = 0;
-    }
-	else {
-		nr_subarrays_left = Ntwl*Ntbl;
-		nr_subarrays_left /= 4;
-		horizontal_step = cols;
-		vertical_step = C/(B*A*Ntbl*Ntspd);
-		h_inv_predecode = horizontal_step;
-
-		Ctdectreesegments[0] = GlobalCwordmetal*horizontal_step;
-		Rtdectreesegments[0] = 0.5*GlobalRwordmetal*horizontal_step;
-		Cline = 4*gatecap(previous_ndriveW+previous_pdriveW,10.0 / FUDGEFACTOR)+GlobalCwordmetal*horizontal_step;
-		Cload = Cline / gatecap(1.0,0.0);
-
-		current_ndriveW = Cload*SizingRatio/3;
-		current_pdriveW = 2*Cload*SizingRatio/3;
-		WtdecdrivetreeN[0] = current_ndriveW;
-		nr_tdectreesegments = 1;
-
-		horizontal_step *= 2;
-		v_or_h = 1; // next step is vertical
-		
-		while(nr_subarrays_left > 1) {
-			previous_ndriveW = current_ndriveW;
-			previous_pdriveW = current_pdriveW;
-			nr_tdectreesegments++;
-			if(v_or_h) {
-				v_inv_predecode += vertical_step;
-				Ctdectreesegments[nr_tdectreesegments-1] = GlobalCbitmetal*vertical_step;
-				Rtdectreesegments[nr_tdectreesegments-1] = 0.5*GlobalRbitmetal*vertical_step;
-				Cline = gatecap(previous_ndriveW+previous_pdriveW,0)+GlobalCbitmetal*vertical_step;
-				v_or_h = 0;
-				vertical_step *= 2;
-				nr_subarrays_left /= 2;
-			}
-			else {
-				h_inv_predecode += horizontal_step;
-				Ctdectreesegments[nr_tdectreesegments-1] = GlobalCwordmetal*horizontal_step;
-				Rtdectreesegments[nr_tdectreesegments-1] = 0.5*GlobalRwordmetal*horizontal_step;
-				Cline = gatecap(previous_ndriveW+previous_pdriveW,0)+GlobalCwordmetal*horizontal_step;
-				v_or_h = 1;
-				horizontal_step *= 2;
-				nr_subarrays_left /= 2;
-			}
-			Cload = Cline / gatecap(1.0,0.0);
-
-			current_ndriveW = Cload*SizingRatio/3;
-			current_pdriveW = 2*Cload*SizingRatio/3;
-
-			WtdecdrivetreeN[nr_tdectreesegments-1] = current_ndriveW;
-		}
-
-		if(nr_tdectreesegments >= 10) {
-			printf("Too many segments in the tag decoder H-tree. Overflowing the preallocated array!");
-			exit(1);
-		}
-
-		wire_cap = GlobalCbitmetal*v_inv_predecode + GlobalCwordmetal*h_inv_predecode;
-		wire_res = 0.5*(GlobalRbitmetal*v_inv_predecode + GlobalRwordmetal*h_inv_predecode);
-	}
-
-	Cline = 4*gatecap(Wtdec3to8n+Wtdec3to8p,10.0 / FUDGEFACTOR) + wire_cap;
-	Cload = Cline / gatecap(1.0,0.0);
-
-	Wtdecdriven_second = current_ndriveW;
-	Wtdecdrivep_second = current_pdriveW;
-
-	// Size of second driver
-
-	Wtdecdriven_first = (Wtdecdriven_second + Wtdecdrivep_second)*SizingRatio/3;
-	Wtdecdrivep_first = 2*(Wtdecdriven_second + Wtdecdrivep_second)*SizingRatio/3;
-
-}
-double cmos_ileakage(double nWidth, double pWidth,
-					 double nVthresh_dual, double nVthreshold, double pVthresh_dual, double pVthreshold) {
-	double leakage = 0.0;
-	static int valid_cache = 0;
-	static double cached_nmos_thresh = 0;
-	static double cached_pmos_thresh = 0;
-
-	static double norm_nmos_leakage = 0;
-	static double norm_pmos_leakage = 0;
-
-	if(have_leakage_params) {
-
-		if (dualVt == TRUE) {
-			
-			if((cached_nmos_thresh == nVthresh_dual) && (cached_pmos_thresh == pVthresh_dual) && valid_cache) {
-				leakage = nWidth*norm_nmos_leakage + pWidth*norm_pmos_leakage;
-			}
-			else {
-				leakage = simplified_cmos_leakage(nWidth*inv_Leff,pWidth*inv_Leff,nVthresh_dual,pVthresh_dual,&norm_nmos_leakage,&norm_pmos_leakage);
-				cached_nmos_thresh = nVthresh_dual;
-				cached_pmos_thresh = pVthresh_dual;
-				norm_nmos_leakage = inv_Leff*norm_nmos_leakage;
-				norm_pmos_leakage = inv_Leff*norm_pmos_leakage;
-				valid_cache = 1;
-			}
-		}
-		else {
-			
-			if((cached_nmos_thresh == nVthreshold) && (cached_pmos_thresh == pVthreshold) && valid_cache) {
-				leakage = nWidth*norm_nmos_leakage + pWidth*norm_pmos_leakage;
-			}
-			else {
-				leakage = simplified_cmos_leakage(nWidth*inv_Leff,pWidth*inv_Leff,nVthreshold,pVthreshold,&norm_nmos_leakage,&norm_pmos_leakage);
-				cached_nmos_thresh = nVthreshold;
-				cached_pmos_thresh = pVthreshold;
-				norm_nmos_leakage = inv_Leff*norm_nmos_leakage;
-				norm_pmos_leakage = inv_Leff*norm_pmos_leakage;
-				valid_cache = 1;
-			}
-		}
-	}
-	else {
-		leakage = 0;
-	}
-	return leakage;
-}
-void reset_powerDef(powerDef *power) {
-	power->readOp.dynamic = 0.0;
-	power->readOp.leakage = 0.0;
-
-	power->writeOp.dynamic = 0.0;
-	power->writeOp.leakage = 0.0;
-}
-void mult_powerDef(powerDef *power, int val) {
-	power->readOp.dynamic *= val;
-	power->readOp.leakage *= val;
-
-	power->writeOp.dynamic *= val;
-	power->writeOp.leakage *= val;
-}
-void mac_powerDef(powerDef *sum,powerDef *mult, int val) {
-	sum->readOp.dynamic += mult->readOp.dynamic*val;
-	sum->readOp.leakage += mult->readOp.leakage*val;
-
-	sum->writeOp.dynamic += mult->writeOp.dynamic*val;
-	sum->writeOp.leakage += mult->writeOp.leakage*val;
-}
-void copy_powerDef(powerDef *dest, powerDef source) {
-	dest->readOp.dynamic = source.readOp.dynamic;
-	dest->readOp.leakage = source.readOp.leakage;
-
-	dest->writeOp.dynamic = source.writeOp.dynamic;
-	dest->writeOp.leakage = source.writeOp.leakage;
-}
-void copy_and_div_powerDef(powerDef *dest, powerDef source, double val) {
-
-	// only dynamic power needs to be scaled.
-	dest->readOp.dynamic = source.readOp.dynamic / val;
-	dest->readOp.leakage = source.readOp.leakage;
-
-	dest->writeOp.dynamic = source.writeOp.dynamic / val;
-	dest->writeOp.leakage = source.writeOp.leakage;
-}
-
-void add_powerDef(powerDef *sum, powerDef a, powerDef b) {
-
-	sum->readOp.dynamic = a.readOp.dynamic + b.readOp.dynamic;
-	sum->readOp.leakage = a.readOp.leakage + b.readOp.leakage;
-
-	sum->writeOp.dynamic = a.writeOp.dynamic + b.writeOp.dynamic;
-	sum->writeOp.leakage = a.writeOp.leakage + b.writeOp.leakage;
-}
-
-double objective_function(double delay_weight, double area_weight, double power_weight,
-						  double delay,double area,double power)
-{
-   return
-      (double)(area_weight*area + delay_weight*delay + power_weight*power);
-}
-
-
-
-/*======================================================================*/
-
-
-
-/* 
- * This part of the code contains routines for each section as
- * described in the tech report.  See the tech report for more details
- * and explanations */
-
-/*----------------------------------------------------------------------*/
-
-void subbank_routing_length (int C,int B,int A,
-						char fullyassoc,
-						int Ndbl,double Nspd,int Ndwl,int Ntbl,int Ntwl,int Ntspd,
-						double NSubbanks,
-						double *subbank_v,double *subbank_h)
-{
-  double htree;
-  int htree_int, tagbits;
-  int cols_data_subarray, rows_data_subarray, cols_tag_subarray,
-    rows_tag_subarray;
-  double inter_v, inter_h, sub_h, sub_v;
-  int inter_subbanks;
-  int cols_fa_subarray, rows_fa_subarray;
-
-  if (!fullyassoc)
-    {
-
-	  //v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-      //the final int value is the correct one 
-      //cols_data_subarray = (8 * B * A * Nspd / Ndwl);
-      //rows_data_subarray = (C / (B * A * Ndbl * Nspd));
-      cols_data_subarray = (int) ((8 * B * A * Nspd / Ndwl) + EPSILON);
-      rows_data_subarray = (int) (C / (B * A * Ndbl * Nspd) + EPSILON);
-
-      if (Ndwl * Ndbl == 1)
-	{
-	  sub_v = rows_data_subarray;
-	  sub_h = cols_data_subarray;
-	}
-      else if (Ndwl * Ndbl == 2)
-	{
-	  sub_v = rows_data_subarray;
-	  sub_h = 2 * cols_data_subarray;
-	}
-      else if (Ndwl * Ndbl > 2)
-	{
-	  htree = logtwo ((double) (Ndwl * Ndbl));
-	  //v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-      //the final int value is the correct one 
-	  //htree_int = (int) htree;
-	  htree_int = (int) (htree + EPSILON);
-	  if (htree_int % 2 == 0)
-	    {
-	      sub_v = sqrt (Ndwl * Ndbl) * rows_data_subarray;
-	      sub_h = sqrt (Ndwl * Ndbl) * cols_data_subarray;
-	    }
-	  else
-	    {
-	      sub_v = sqrt (Ndwl * Ndbl / 2) * rows_data_subarray;
-	      sub_h = 2 * sqrt (Ndwl * Ndbl / 2) * cols_data_subarray;
-	    }
-	}
-      inter_v = sub_v;
-      inter_h = sub_h;
-
-      rows_tag_subarray = C / (B * A * Ntbl * Ntspd);
-	  if(!force_tag) {
-	    //v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-		//the final int value is the correct one 
-		//tagbits = ADDRESS_BITS + EXTRA_TAG_BITS - (int) logtwo ((double) C) + 
-		  //(int) logtwo ((double) A) - (int) (logtwo (NSubbanks));
-		tagbits = (int) (ADDRESS_BITS + EXTRA_TAG_BITS - (int) logtwo ((double) C) + 
-		  (int) logtwo ((double) A) - (int) (logtwo (NSubbanks)) + EPSILON);
-	  }
-	  else {
-		  tagbits = force_tag_size;
-	  }
-
-      cols_tag_subarray = tagbits * A * Ntspd / Ntwl;
-
-      if (Ntwl * Ntbl == 1)
-	{
-	  sub_v = rows_tag_subarray;
-	  sub_h = cols_tag_subarray;
-	}
-      if (Ntwl * Ntbl == 2)
-	{
-	  sub_v = rows_tag_subarray;
-	  sub_h = 2 * cols_tag_subarray;
-	}
-
-      if (Ntwl * Ntbl > 2)
-	{
-	  htree = logtwo ((double) (Ntwl * Ntbl));
-	  //v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-      //the final int value is the correct one 
-	  //htree_int = (int) htree;
-	  htree_int = (int) (htree + EPSILON);
-	  if (htree_int % 2 == 0)
-	    {
-	      sub_v = sqrt (Ntwl * Ntbl) * rows_tag_subarray;
-	      sub_h = sqrt (Ntwl * Ntbl) * cols_tag_subarray;
-	    }
-	  else
-	    {
-	      sub_v = sqrt (Ntwl * Ntbl / 2) * rows_tag_subarray;
-	      sub_h = 2 * sqrt (Ntwl * Ntbl / 2) * cols_tag_subarray;
-	    }
-	}
-
-
-      inter_v = MAX (sub_v, inter_v);
-      inter_h += sub_h;
-
-      sub_v = 0;
-      sub_h = 0;
-
-      if (NSubbanks == 1.0 || NSubbanks == 2.0)
-	{
-	  sub_h = 0;
-	  sub_v = 0;
-	}
-      if (NSubbanks == 4.0)
-	{
-	  sub_h = 0;
-	  sub_v = inter_v;
-	}
-
-      inter_subbanks = (int)NSubbanks;
-
-      while ((inter_subbanks > 2) && (NSubbanks > 4))
-	{
-
-	  sub_v += inter_v;
-	  sub_h += inter_h;
-
-	  inter_v = 2 * inter_v;
-	  inter_h = 2 * inter_h;
-	  inter_subbanks = inter_subbanks / 4;
-
-	  if (inter_subbanks == 4.0)
-	    {
-	      inter_h = 0;
-	    }
-
-	}
-      *subbank_v = sub_v;
-      *subbank_h = sub_h;
-    }
-  else
-    {
-      rows_fa_subarray = (C / (B * Ndbl));
-	  if(!force_tag) {
-		//v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-        //the final int value is the correct one 
-		//tagbits = ADDRESS_BITS + EXTRA_TAG_BITS - (int) logtwo ((double) B);
-		tagbits = ADDRESS_BITS + EXTRA_TAG_BITS - (int) (logtwo ((double) B) + EPSILON);
-	  }
-	  else {
-		  tagbits = force_tag_size;
-	  }
-      cols_fa_subarray = (8 * B) + tagbits;
-
-      if (Ndbl == 1)
-	{
-	  sub_v = rows_fa_subarray;
-	  sub_h = cols_fa_subarray;
-	}
-      if (Ndbl == 2)
-	{
-	  sub_v = rows_fa_subarray;
-	  sub_h = 2 * cols_fa_subarray;
-	}
-
-      if (Ndbl > 2)
-	{
-	  htree = logtwo ((double) (Ndbl));
-	  //v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-      //the final int value is the correct one 
-	  //htree_int = (int) htree;
-	  htree_int = (int) (htree + EPSILON);
-	  if (htree_int % 2 == 0)
-	    {
-	      sub_v = sqrt (Ndbl) * rows_fa_subarray;
-	      sub_h = sqrt (Ndbl) * cols_fa_subarray;
-	    }
-	  else
-	    {
-	      sub_v = sqrt (Ndbl / 2) * rows_fa_subarray;
-	      sub_h = 2 * sqrt (Ndbl / 2) * cols_fa_subarray;
-	    }
-	}
-      inter_v = sub_v;
-      inter_h = sub_h;
-
-      sub_v = 0;
-      sub_h = 0;
-
-      if (NSubbanks == 1.0 || NSubbanks == 2.0)
-	{
-	  sub_h = 0;
-	  sub_v = 0;
-	}
-      if (NSubbanks == 4.0)
-	{
-	  sub_h = 0;
-	  sub_v = inter_v;
-	}
-
-      inter_subbanks = (int)NSubbanks;
-
-      while ((inter_subbanks > 2) && (NSubbanks > 4))
-	{
-
-	  sub_v += inter_v;
-	  sub_h += inter_h;
-
-	  inter_v = 2 * inter_v;
-	  inter_h = 2 * inter_h;
-	  inter_subbanks = inter_subbanks / 4;
-
-	  if (inter_subbanks == 4.0)
-	    {
-	      inter_h = 0;
-	    }
-
-	}
-      *subbank_v = sub_v;
-      *subbank_h = sub_h;
-    }
-}
-
-void subbank_dim (int C,int B,int A,
-			 char fullyassoc,
-			 int Ndbl,int Ndwl,double Nspd,int Ntbl,int Ntwl,int Ntspd,
-			 double NSubbanks,
-			 double *subbank_h,double *subbank_v)
-{
-  double htree;
-  int htree_int, tagbits;
-  int cols_data_subarray, rows_data_subarray, cols_tag_subarray,
-    rows_tag_subarray;
-  double sub_h, sub_v, inter_v, inter_h;
-  int cols_fa_subarray, rows_fa_subarray;
-
-  if (!fullyassoc)
-    {
-
-      /* calculation of subbank dimensions */
-      //v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-      //the final int value is the correct one 
-      //cols_data_subarray = (8 * B * A * Nspd / Ndwl);
-      //rows_data_subarray = (C / (B * A * Ndbl * Nspd));
-	  cols_data_subarray = (int)(8 * B * A * Nspd / Ndwl + EPSILON);
-      rows_data_subarray = (int) (C / (B * A * Ndbl * Nspd) + EPSILON);
-
-      if (Ndwl * Ndbl == 1)
-	{
-	  sub_v = rows_data_subarray;
-	  sub_h = cols_data_subarray;
-	}
-      if (Ndwl * Ndbl == 2)
-	{
-	  sub_v = rows_data_subarray;
-	  sub_h = 2 * cols_data_subarray;
-	}
-      if (Ndwl * Ndbl > 2)
-	{
-	  htree = logtwo ((double) (Ndwl * Ndbl));
-	  //v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-      //the final int value is the correct one 
-	  //htree_int = (int) htree;
-	  htree_int = (int) (htree + EPSILON);
-	  if (htree_int % 2 == 0)
-	    {
-	      sub_v = sqrt (Ndwl * Ndbl) * rows_data_subarray;
-	      sub_h = sqrt (Ndwl * Ndbl) * cols_data_subarray;
-	    }
-	  else
-	    {
-	      sub_v = sqrt (Ndwl * Ndbl / 2) * rows_data_subarray;
-	      sub_h = 2 * sqrt (Ndwl * Ndbl / 2) * cols_data_subarray;
-	    }
-	}
-      inter_v = sub_v;
-      inter_h = sub_h;
-
-      rows_tag_subarray = C / (B * A * Ntbl * Ntspd);
-
-	  if(!force_tag) {
-	  //v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-	  //the final int value is the correct one 
-      //tagbits = ADDRESS_BITS + EXTRA_TAG_BITS - (int) logtwo ((double) C) +
-				//(int) logtwo ((double) A) - (int) (logtwo (NSubbanks));
-	   tagbits = (int) (ADDRESS_BITS + EXTRA_TAG_BITS - (int) logtwo ((double) C) +
-				(int) logtwo ((double) A) - (int) (logtwo (NSubbanks)) + EPSILON);
-	  }
-	  else {
-		  tagbits = force_tag_size;
-	  }
-      cols_tag_subarray = tagbits * A * Ntspd / Ntwl;
-
-      if (Ntwl * Ntbl == 1)
-	{
-	  sub_v = rows_tag_subarray;
-	  sub_h = cols_tag_subarray;
-	}
-      if (Ntwl * Ntbl == 2)
-	{
-	  sub_v = rows_tag_subarray;
-	  sub_h = 2 * cols_tag_subarray;
-	}
-
-      if (Ntwl * Ntbl > 2)
-	{
-	  htree = logtwo ((double) (Ntwl * Ntbl));
-	  //v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-      //the final int value is the correct one 
-	  //htree_int = (int) htree;
-	  htree_int = (int) (htree + EPSILON);
-	  if (htree_int % 2 == 0)
-	    {
-	      sub_v = sqrt (Ntwl * Ntbl) * rows_tag_subarray;
-	      sub_h = sqrt (Ntwl * Ntbl) * cols_tag_subarray;
-	    }
-	  else
-	    {
-	      sub_v = sqrt (Ntwl * Ntbl / 2) * rows_tag_subarray;
-	      sub_h = 2 * sqrt (Ntwl * Ntbl / 2) * cols_tag_subarray;
-	    }
-	}
-
-      inter_v = MAX (sub_v, inter_v);
-      inter_h += sub_h;
-
-      *subbank_v = inter_v;
-      *subbank_h = inter_h;
-    }
-
-  else
-    {
-      rows_fa_subarray = (C / (B * Ndbl));
-	  if(!force_tag) {
-		 //v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-		 //the final int value is the correct one 
-		 //tagbits = ADDRESS_BITS + EXTRA_TAG_BITS - (int) logtwo ((double) B);
-		 tagbits = ADDRESS_BITS + EXTRA_TAG_BITS - (int) (logtwo ((double) B) + EPSILON);
-	  }
-	  else {
-		  tagbits = force_tag_size;
-	  }
-      cols_fa_subarray = (8 * B) + tagbits;
-
-      if (Ndbl == 1)
-	{
-	  sub_v = rows_fa_subarray;
-	  sub_h = cols_fa_subarray;
-	}
-      if (Ndbl == 2)
-	{
-	  sub_v = rows_fa_subarray;
-	  sub_h = 2 * cols_fa_subarray;
-	}
-
-      if (Ndbl > 2)
-	{
-	  htree = logtwo ((double) (Ndbl));
-	  //v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-      //the final int value is the correct one 
-	  //htree_int = (int) htree;
-	  htree_int = (int) (htree + EPSILON);
-	  if (htree_int % 2 == 0)
-	    {
-	      sub_v = sqrt (Ndbl) * rows_fa_subarray;
-	      sub_h = sqrt (Ndbl) * cols_fa_subarray;
-	    }
-	  else
-	    {
-	      sub_v = sqrt (Ndbl / 2) * rows_fa_subarray;
-	      sub_h = 2 * sqrt (Ndbl / 2) * cols_fa_subarray;
-	    }
-	}
-      inter_v = sub_v;
-      inter_h = sub_h;
-
-      *subbank_v = inter_v;
-      *subbank_h = inter_h;
-    }
-}
-
-
-void subbanks_routing_power (char fullyassoc,
-						int A,
-						double NSubbanks,
-						double *subbank_h,double *subbank_v,powerDef *power)
-{
-  double Ceq, Ceq_outdrv;
-  int i, blocks, htree_int, subbank_mod;
-  double htree, wire_cap, wire_cap_outdrv;
-  double start_h, start_v, line_h, line_v;
-  double dynPower = 0.0;
-
-  //*power = 0.0;
-
-  if (fullyassoc)
-    {
-      A = 1;
-    }
-
-  if (NSubbanks == 1.0 || NSubbanks == 2.0)
-    {
-      //*power = 0.0;
-	  power->writeOp.dynamic = 0.0;
-	  power->writeOp.leakage = 0.0;
-
-	  power->readOp.dynamic = 0.0;
-	  power->readOp.leakage = 0.0;
-    }
-
-  if (NSubbanks == 4.0)
-    {
-      /* calculation of address routing power */
-      wire_cap = GlobalCbitmetal * (*subbank_v);
-      Ceq = draincap (Wdecdrivep, PCH, 1) + draincap (Wdecdriven, NCH, 1) +
-	gatecap (Wdecdrivep + Wdecdriven, 0.0);
-      dynPower += 2 * ADDRESS_BITS * Ceq * .5 * VddPow * VddPow;
-      Ceq = draincap (Wdecdrivep, PCH, 1) + draincap (Wdecdriven, NCH, 1) +
-	wire_cap;
-      dynPower += 2 * ADDRESS_BITS * Ceq * .5 * VddPow * VddPow;
-
-      /* calculation of out driver power */
-      wire_cap_outdrv = Cbitmetal * (*subbank_v);
-      Ceq_outdrv =
-	draincap (Wsenseextdrv1p, PCH, 1) + draincap (Wsenseextdrv1n, NCH,
-						      1) +
-	gatecap (Wsenseextdrv2n + Wsenseextdrv2p, 10.0 / FUDGEFACTOR);
-      dynPower += 2 * Ceq_outdrv * VddPow * VddPow * .5 * BITOUT * A * muxover;
-      Ceq_outdrv =
-	draincap (Wsenseextdrv2p, PCH, 1) + draincap (Wsenseextdrv2n, NCH,
-						      1) + wire_cap_outdrv;
-      dynPower += 2 * Ceq_outdrv * VddPow * VddPow * .5 * BITOUT * A * muxover;
-
-    }
-
-  if (NSubbanks == 8.0)
-    {
-      wire_cap = GlobalCbitmetal * (*subbank_v) + GlobalCwordmetal * (*subbank_h);
-      /* buffer stage */
-      Ceq = draincap (Wdecdrivep, PCH, 1) + draincap (Wdecdriven, NCH, 1) +
-	gatecap (Wdecdrivep + Wdecdriven, 0.0);
-      dynPower += 6 * ADDRESS_BITS * Ceq * .5 * VddPow * VddPow;
-      Ceq = draincap (Wdecdrivep, PCH, 1) + draincap (Wdecdriven, NCH, 1) +
-	wire_cap;
-      dynPower += 4 * ADDRESS_BITS * Ceq * .5 * VddPow * VddPow;
-      Ceq = draincap (Wdecdrivep, PCH, 1) + draincap (Wdecdriven, NCH, 1) +
-	(wire_cap - Cbitmetal * (*subbank_v));
-      dynPower += 2 * ADDRESS_BITS * Ceq * .5 * VddPow * VddPow;
-
-      /* calculation of out driver power */
-      wire_cap_outdrv = Cbitmetal * (*subbank_v) + Cwordmetal * (*subbank_h);
-      Ceq_outdrv =
-	draincap (Wsenseextdrv1p, PCH, 1) + draincap (Wsenseextdrv1n, NCH,
-						      1) +
-	gatecap (Wsenseextdrv2n + Wsenseextdrv2p, 10.0 / FUDGEFACTOR);
-      dynPower += 6 * Ceq_outdrv * VddPow * VddPow * .5 * BITOUT * A * muxover;
-      Ceq_outdrv =
-	draincap (Wsenseextdrv2p, PCH, 1) + draincap (Wsenseextdrv2n, NCH,
-						      1) + wire_cap_outdrv;
-      dynPower += 4 * Ceq_outdrv * VddPow * VddPow * .5 * BITOUT * A * muxover;
-      Ceq_outdrv =
-	draincap (Wsenseextdrv2p, PCH, 1) + draincap (Wsenseextdrv2n, NCH,
-						      1) + (wire_cap_outdrv -
-							    Cbitmetal *
-							    (*subbank_v));
-      dynPower += 2 * Ceq_outdrv * VddPow * VddPow * .5 * BITOUT * A * muxover;
-
-    }
-
-  if (NSubbanks > 8.0)
-    {
-      blocks = (int) (NSubbanks / 8.0);
-      htree = logtwo ((double) (blocks));
-	  //v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-      //the final int value is the correct one 
-      //htree_int = (int) htree;
-	  htree_int = (int) (htree + EPSILON);
-      if (htree_int % 2 == 0)
-	{
-	  subbank_mod = htree_int;
-	  start_h =
-	    (*subbank_h * (powers (2, ((int) (logtwo (htree))) + 1) - 1));
-	  start_v = *subbank_v;
-	}
-      else
-	{
-	  subbank_mod = htree_int - 1;
-	  start_h = (*subbank_h * (powers (2, (htree_int + 1) / 2) - 1));
-	  start_v = *subbank_v;
-	}
-
-      if (subbank_mod == 0)
-	{
-	  subbank_mod = 1;
-	}
-
-      line_v = start_v;
-      line_h = start_h;
-
-      for (i = 1; i <= blocks; i++)
-	{
-	  wire_cap = line_v * GlobalCbitmetal + line_h * GlobalCwordmetal;
-
-	  Ceq =
-	    draincap (Wdecdrivep, PCH, 1) + draincap (Wdecdriven, NCH,
-						      1) +
-	    gatecap (Wdecdrivep + Wdecdriven, 0.0);
-	  dynPower += 6 * ADDRESS_BITS * Ceq * .5 * VddPow * VddPow;
-	  Ceq =
-	    draincap (Wdecdrivep, PCH, 1) + draincap (Wdecdriven, NCH,
-						      1) + wire_cap;
-	  dynPower += 4 * ADDRESS_BITS * Ceq * .5 * VddPow * VddPow;
-	  Ceq =
-	    draincap (Wdecdrivep, PCH, 1) + draincap (Wdecdriven, NCH,
-						      1) + (wire_cap -
-							    Cbitmetal *
-							    (*subbank_v));
-	  dynPower += 2 * ADDRESS_BITS * Ceq * .5 * VddPow * VddPow;
-
-	  /* calculation of out driver power */
-	  wire_cap_outdrv = line_v * GlobalCbitmetal + line_h * GlobalCwordmetal;
-
-	  Ceq_outdrv =
-	    draincap (Wsenseextdrv1p, PCH, 1) + draincap (Wsenseextdrv1n, NCH,
-							  1) +
-	    gatecap (Wsenseextdrv2n + Wsenseextdrv2p, 10.0 / FUDGEFACTOR);
-	  dynPower +=
-	    6 * Ceq_outdrv * VddPow * VddPow * .5 * BITOUT * A * muxover;
-	  Ceq_outdrv =
-	    draincap (Wsenseextdrv2p, PCH, 1) + draincap (Wsenseextdrv2n, NCH,
-							  1) +
-	    wire_cap_outdrv;
-	  dynPower +=
-	    4 * Ceq_outdrv * VddPow * VddPow * .5 * BITOUT * A * muxover;
-	  Ceq_outdrv =
-	    draincap (Wsenseextdrv2p, PCH, 1) + draincap (Wsenseextdrv2n, NCH,
-							  1) +
-	    (wire_cap_outdrv - Cbitmetal * (*subbank_v));
-	  dynPower +=
-	    2 * Ceq_outdrv * VddPow * VddPow * .5 * BITOUT * A * muxover;
-
-	  if (i % subbank_mod == 0)
-	    {
-	      line_v += 2 * (*subbank_v);
-	    }
-	}
-    }
-
-	power->writeOp.dynamic = dynPower;
-	/*dt: still have to add leakage current*/
-	power->readOp.dynamic = dynPower;
-	/*dt: still have to add leakage current*/
-}
-
-double address_routing_delay (int C,int B,int A,
-					   char fullyassoc,
-					   int Ndwl,int Ndbl,double Nspd,int Ntwl,int Ntbl,int Ntspd,
-					   double *NSubbanks,double *outrisetime,powerDef *power)
-{
-	double Ceq,tf,nextinputtime,delay_stage1,delay_stage2;
-    double addr_h,addr_v;
-    double wire_cap, wire_res;
-    double lkgCurrent = 0.0;
-    double dynEnergy = 0.0;
-    double Cline, Cload;
-	//powerDef *thisPower;
-
-  /* Calculate rise time.  Consider two inverters */
-
-  Ceq = draincap (Wdecdrivep, PCH, 1) + draincap (Wdecdriven, NCH, 1) +
-    gatecap (Wdecdrivep + Wdecdriven, 0.0);
-  tf = Ceq * transreson (Wdecdriven, NCH, 1);
-  nextinputtime = horowitz (0.0, tf, VTHINV360x240, VTHINV360x240, FALL) /
-    (VTHINV360x240);
-
-  Ceq = draincap (Wdecdrivep, PCH, 1) + draincap (Wdecdriven, NCH, 1) +
-    gatecap (Wdecdrivep + Wdecdriven, 0.0);
-  tf = Ceq * transreson (Wdecdriven, NCH, 1);
-  nextinputtime = horowitz (nextinputtime, tf, VTHINV360x240, VTHINV360x240,
-			    RISE) / (1.0 - VTHINV360x240);
-  addr_h = 0;
-  addr_v = 0;
-  subbank_routing_length (C, B, A, fullyassoc, Ndbl, Nspd, Ndwl, Ntbl, Ntwl,
-			  Ntspd, *NSubbanks, &addr_v, &addr_h);
-  wire_cap = GlobalCbitmetal * addr_v + addr_h * GlobalCwordmetal;
-  wire_res = (GlobalRwordmetal * addr_h + GlobalRbitmetal * addr_v) / 2.0;
-
-  /* buffer stage */
-  /*dt: added gate width calc and leakage from eCACTI */
-    Cline = *NSubbanks * ( gatecap(Wdecdrivep_first + Wdecdriven_first,0.0) + gatecap(Wtdecdrivep_first + Wtdecdriven_first,0.0) ) + wire_cap;
-	Cload = Cline / gatecap(1.0,0.0);
-	Waddrdrvn1 = Cload * SizingRatio /3;
-	Waddrdrvp1 = Cload * SizingRatio * 2/3;
-
-	Waddrdrvn2 = (Waddrdrvn1 + Waddrdrvp1) * SizingRatio * 1/3 ;
-	Waddrdrvp2 = (Waddrdrvn1 + Waddrdrvp1) * SizingRatio * 2/3 ;
-
-    Ceq = draincap(Waddrdrvp2,PCH,1)+draincap(Waddrdrvn2,NCH,1) +
-    		gatecap(Waddrdrvn1+Waddrdrvp1,0.0);
-    tf = Ceq*transreson(Waddrdrvn2,NCH,1);
-	delay_stage1 = horowitz(nextinputtime,tf,VTHINV360x240,VTHINV360x240,FALL);
-    nextinputtime = horowitz(nextinputtime,tf,VTHINV360x240,VTHINV360x240,FALL)/(VTHINV360x240);
-
-    dynEnergy = ADDRESS_BITS*Ceq*.5*VddPow*VddPow;
-
-	lkgCurrent += ADDRESS_BITS*0.5*cmos_ileakage(Waddrdrvn2,Waddrdrvp2,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-
-    Ceq = draincap(Waddrdrvp1,PCH,1)+draincap(Waddrdrvn1,NCH,1) + wire_cap
-    		+ *NSubbanks * (gatecap(Wdecdrivep_first+Wdecdriven_first,0.0) + gatecap(Wtdecdrivep_first+Wtdecdriven_first,0.0));
-    tf = Ceq*(transreson(Waddrdrvn1,NCH,1)+wire_res);
-	delay_stage2=horowitz(nextinputtime,tf,VTHINV360x240,VTHINV360x240,RISE);
-    nextinputtime = horowitz(nextinputtime,tf,VTHINV360x240,VTHINV360x240,RISE)/(1.0-VTHINV360x240);
-
-    dynEnergy += ADDRESS_BITS*Ceq*.5*VddPow*VddPow;
-
-   	lkgCurrent += ADDRESS_BITS*0.5*cmos_ileakage(Waddrdrvn1,Waddrdrvp1,Vthn,Vt_bit_nmos_low,Vt_bit_pmos_low,Vthp);
-
-	*outrisetime = nextinputtime;
-
-	power->readOp.dynamic = dynEnergy;
-	power->readOp.leakage = lkgCurrent * VddPow;
-
-	// power for write op same as read op for address routing
-	power->writeOp.dynamic = dynEnergy;
-	power->writeOp.leakage = lkgCurrent * VddPow;
-
-	return(delay_stage1+delay_stage2);
-
-}
-
-
-
-/* Decoder delay:  (see section 6.1 of tech report) */
-
-/*dt: this is integrated from eCACTI. But we use want Energy per operation, not some measure of power, so no FREQ. */
-double decoder_delay(int C, int B,int A,int Ndwl,int Ndbl,double Nspd,double NSubbanks,
-			double *Tdecdrive,double *Tdecoder1,double *Tdecoder2,double inrisetime,double *outrisetime, int *nor_inputs,powerDef *power)
-{
-  	int numstack, Nact;
-    //double Ceq,Req,Rwire,tf,nextinputtime,vth,tstep;
-	double Ceq,Req,Rwire,tf,nextinputtime,vth;
-  	int l_predec_nor_v, l_predec_nor_h,rows,cols;
-	//double wire_cap, wire_res;
-	double lkgCurrent = 0.0, dynPower = 0.0;
-	int horizontal_edge = 0;
-	int nr_subarrays_left = 0, v_or_h = 0;
-	int horizontal_step = 0, vertical_step = 0;
-	int h_inv_predecode = 0, v_inv_predecode = 0;
-	int addr_bits_routed;
-	int i;
-	double this_delay;
-
-	//v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-    //the final int value is the correct one 
-	//int addr_bits=(int)logtwo( (double)((double)C/(double)(B*A*Ndbl*Nspd)));
-	//addr_bits_routed = (int)logtwo( (double)((double)C/(double)B));
-	//int addr_bits=(int)logtwo( (double)((double)C/(double)(B*A*Ndbl*Nspd)));
-	//addr_bits_routed = (int)logtwo( (double)((double)C/(double)B));
-
-	int addr_bits=(int) (logtwo( (double)((double)C/(double)(B*A*Ndbl*Nspd))) + EPSILON);
-	addr_bits_routed = (int) (logtwo( (double)((double)C/(double)B)) + EPSILON);
-
-	//rows = C/(8*B*A*Ndbl*Nspd);
-	//cols = CHUNKSIZE*B*A*Nspd/Ndwl;
-
-	rows = (int) (C/(8*B*A*Ndbl*Nspd) + EPSILON);
-	cols = (int) (CHUNKSIZE*B*A*Nspd/Ndwl + EPSILON);
-
-	numstack =
-	      (int) ceil((1.0/3.0)*logtwo( (double)((double)C/(double)(B*A*Ndbl*Nspd))));
-	if (numstack==0) numstack = 1;
-
-	if (numstack>5) numstack = 5;
-	
-	/*dt: The *8 is there because above we mysteriously divide the capacity in BYTES by the number of BITS per wordline */
-	l_predec_nor_v = rows*8; 
-	/*dt: If we follow the original drawings from the TR's, then there is almost no horizontal wires, only the poly for contacting
-	the nor gates. The poly part we don't model right now */
-	l_predec_nor_h = 0;
-
-	
-    /* Calculate rise time.  Consider two inverters */
-
-
-    if (NSubbanks > 2) {
-		Ceq = draincap(Waddrdrvp1,PCH,1)+draincap(Waddrdrvn1,NCH,1) +
-    			gatecap(Wdecdrivep_first+Wdecdriven_first,0.0);
-
-    	tf = Ceq*transreson(Waddrdrvn1,NCH,1);
-    	nextinputtime = horowitz(0.0,tf,VTHINV360x240,VTHINV360x240,FALL)/
-                                  (VTHINV360x240);
-	}
-	else {
-		Ceq = draincap(Wdecdrivep_first,PCH,1)+draincap(Wdecdriven_first,NCH,1) +
-    			gatecap(Wdecdrivep_first+Wdecdriven_first,0.0);
-
-    	tf = Ceq*transreson(Wdecdriven_first,NCH,1);
-    	nextinputtime = horowitz(0.0,tf,VTHINV360x240,VTHINV360x240,FALL)/
-                                  (VTHINV360x240);
-	}
-
-
-	lkgCurrent += addr_bits_routed*0.5*cmos_ileakage(Wdecdriven_first,Wdecdrivep_first,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp)
-		*1.0/(Ndwl*Ndbl);
-
-	*Tdecdrive = 0;
-
-	/*dt: the first inverter driving a bigger inverter*/
-    Ceq = draincap(Wdecdrivep_first,PCH,1)+draincap(Wdecdriven_first,NCH,1) +
-    		  gatecap(Wdecdrivep_second+Wdecdriven_second,0.0);
-
-    tf = Ceq*transreson(Wdecdriven_first,NCH,1);
-	
-     this_delay = horowitz(0.0,tf,VTHINV360x240,VTHINV360x240,RISE);
-
-	*Tdecdrive += this_delay;
-	inrisetime = this_delay/(1.0-VTHINV360x240);
-
-	
-	if(nr_dectreesegments) {
-		Ceq = draincap(Wdecdrivep_second,PCH,1)+draincap(Wdecdriven_second,NCH,1) + 
-			  gatecap(3*WdecdrivetreeN[nr_dectreesegments-1],0) + Cdectreesegments[nr_dectreesegments-1];
-		Req = transreson(Wdecdriven_second,NCH,1) + Rdectreesegments[nr_dectreesegments-1]; 
-
-		tf = Ceq*Req;
-		this_delay = horowitz(inrisetime,tf,VTHINV360x240,VTHINV360x240,RISE);
-
-		*Tdecdrive += this_delay;
-		inrisetime = this_delay/(1.0-VTHINV360x240);
-
-		dynPower+=addr_bits_routed*Ceq*.5*VddPow*VddPow;
-		lkgCurrent += addr_bits_routed*0.5*cmos_ileakage(Wdecdriven_second,Wdecdrivep_second,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp)
-			          *1.0/(Ndwl*Ndbl);
-	}
-	
-
-
-	/*dt: doing all the H-tree segments*/
-	
-	for(i=nr_dectreesegments; i>2;i--) {
-		/*dt: this too should alternate...*/
-		Ceq = (Cdectreesegments[i-2] + draincap(2*WdecdrivetreeN[i-1],PCH,1)+ draincap(WdecdrivetreeN[i-1],NCH,1) + 
-			  gatecap(3*WdecdrivetreeN[i-2],0.0));
-		Req = (Rdectreesegments[i-2] + transreson(WdecdrivetreeN[i-1],NCH,1));
-		tf = Req*Ceq;
-		/*dt: This shouldn't be all falling, but interleaved. Have to fix that at some point.*/
-        this_delay = horowitz(inrisetime,tf,VTHINV360x240,VTHINV360x240,RISE);
-		*Tdecdrive += this_delay;
-		inrisetime = this_delay/(1.0 - VTHINV360x240);
-
-		dynPower+=addr_bits_routed*Ceq*.5*VddPow*VddPow;
-		lkgCurrent += 1.0/(Ndwl*Ndbl)*pow(2,nr_dectreesegments - i)*addr_bits_routed*0.5*
-			          cmos_ileakage(WdecdrivetreeN[i-1],2*WdecdrivetreeN[i-1],Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-	}
-
-	if(nr_dectreesegments) {
-		Ceq = 4*gatecap(Wdec3to8n+Wdec3to8p,10.0 /FUDGEFACTOR) + Cdectreesegments[0] + 
-			    draincap(2*WdecdrivetreeN[0],PCH,1)+ draincap(WdecdrivetreeN[0],NCH,1); 
-		Rwire = Rdectreesegments[0];
-		tf = (Rwire + transreson(2*WdecdrivetreeN[0],PCH,1))*Ceq;
-
-		dynPower+=addr_bits_routed*Ceq*.5*VddPow*VddPow;
-		lkgCurrent += 1.0/(Ndwl*Ndbl)*pow(2,nr_dectreesegments)*addr_bits_routed*0.5*cmos_ileakage(WdecdrivetreeN[0],2*WdecdrivetreeN[0],Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-	}
-	else {
-		Ceq = 4*gatecap(Wdec3to8n+Wdec3to8p,10.0 /FUDGEFACTOR) + Cdectreesegments[0] + 
-			    draincap(Wdecdrivep_second,PCH,1)+ draincap(Wdecdriven_second,NCH,1); 
-		Rwire = Rdectreesegments[0];
-		tf = (Rwire + transreson(Wdecdrivep_second,PCH,1))*Ceq;
-
-		dynPower+=addr_bits_routed*Ceq*.5*VddPow*VddPow;
-		lkgCurrent += 1.0/(Ndwl*Ndbl)*addr_bits_routed*0.5*cmos_ileakage(Wdecdriven_second,Wdecdrivep_second,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-	}
-
-	// there are 8 nand gates in each 3-8 decoder. since these transistors are
-	// stacked, we use a stacking factor of 1/5 (0.2). 0.5 signifies that we
-	// are taking the average of both nmos and pmos transistors.
-
-	
-
-     this_delay = horowitz(inrisetime,tf,VTHINV360x240,VTHNAND60x120,FALL);
-	 *Tdecdrive += this_delay;
-
-	lkgCurrent += 8*0.2*0.5*cmos_ileakage(Wdec3to8n,Wdec3to8p,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp)*
-		// For the all the 3-8 decoders per quad:
-		ceil((1.0/3.0)*logtwo( (double)((double)C/(double)(B*A*Ndbl*Nspd))))
-		/*for all the quads*/
-		*0.25;
-
-    nextinputtime = this_delay/VTHNAND60x120;
-
-    Ceq = 3*draincap(Wdec3to8p,PCH,1) + draincap(Wdec3to8n,NCH,3) +
-	 			gatecap(WdecNORn+WdecNORp,((numstack*40 / FUDGEFACTOR)+20.0 / FUDGEFACTOR))*rows/8 +
-	  			GlobalCbitmetal*(l_predec_nor_v)+ GlobalCwordmetal*(l_predec_nor_h);
-    Rwire = GlobalRbitmetal*(l_predec_nor_v)/2 + GlobalRwordmetal*(l_predec_nor_h)/2;
-
-	tf = Ceq*(Rwire+transreson(Wdec3to8n,NCH,3));
-
-	// 0.2 is the stacking factor, 0.5 for averging of nmos and pmos leakage
-	// and since there are rows number of nor gates:
-
-	lkgCurrent += 0.5*0.2* rows * cmos_ileakage(WdecNORn,WdecNORp,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp); 
-
-	// number of active blocks among Ndwl modules
-	if (Ndwl/Nspd < 1) {
-		Nact = 1;
-	}
-	else {
-		 //v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-         //the final int value is the correct one 
-		//Nact = Ndwl/Nspd;
-		Nact = (int) (Ndwl/Nspd + EPSILON);
-	}
-
-	//dynPower+=Ndwl*Ndbl*Ceq*VddPow*VddPow*4*ceil((1.0/3.0)*logtwo( (double)((double)C/(double)(B*A*Ndbl*Nspd))));
-	dynPower+=0.5*Nact*Ceq*VddPow*VddPow*4*ceil((1.0/3.0)*logtwo( (double)((double)C/(double)(B*A*Ndbl*Nspd))));
-
-    /* we only want to charge the output to the threshold of the
-       nor gate.  But the threshold depends on the number of inputs
-       to the nor.  */
-
-    switch(numstack) {
-       	case 1: vth = VTHNOR12x4x1; break;
-       	case 2: vth = VTHNOR12x4x2; break;
-       	case 3: vth = VTHNOR12x4x3; break;
-       	case 4: vth = VTHNOR12x4x4; break;
-       	case 5: vth = VTHNOR12x4x4; break;
-	    default: printf("error:numstack=%d\n",numstack);
-		printf("Cacti does not support a series stack of %d transistors !\n",numstack);
-		exit(0);
-		break;
-	}
-
-    *Tdecoder1 = horowitz(nextinputtime,tf,VTHNAND60x120,vth,RISE);
-
-    nextinputtime = *Tdecoder1/(1.0-vth);
-
-    /* Final stage: driving an inverter with the nor */
-
-    Req = transreson(WdecNORp,PCH,numstack);
-
-    Ceq = (gatecap(Wdecinvn+Wdecinvp,20.0 / FUDGEFACTOR)+
-          numstack * draincap(WdecNORn,NCH,1)+draincap(WdecNORp,PCH,numstack));
-
-	
-	lkgCurrent += 0.5* rows * cmos_ileakage(Wdecinvn,Wdecinvp,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-    tf = Req*Ceq;
-
-    *Tdecoder2 = horowitz(nextinputtime,tf,vth,VSINV,FALL);
-
-    *outrisetime = *Tdecoder2/(VSINV);
-	*nor_inputs=numstack;
-	dynPower+=Ceq*VddPow*VddPow;
-
-	//printf("%g %g %g %d %d %d\n",*Tdecdrive,*Tdecoder1,*Tdecoder2,Ndwl, Ndbl,Nspd);
-
-	//fprintf(stderr, "%f %f %f %f %d %d %d\n", (*Tdecdrive+*Tdecoder1+*Tdecoder2)*1e3, *Tdecdrive*1e3, *Tdecoder1*1e3, *Tdecoder2*1e3, Ndwl, Ndbl, Nspd);
-	power->readOp.dynamic = dynPower;
-	power->readOp.leakage = (lkgCurrent * VddPow) * Ndwl * Ndbl;
-
-	power->writeOp.dynamic = dynPower;
-	power->writeOp.leakage = (lkgCurrent * VddPow) * Ndwl * Ndbl;
-
-
-    return(*Tdecdrive+*Tdecoder1+*Tdecoder2);
-}
-
-/*----------------------------------------------------------------------*/
-
-/* Decoder delay in the tag array (see section 6.1 of tech report) */
-/*dt: incorporating leakage code from eCacti, see decoder_delay for more comments */
-double decoder_tag_delay(int C, int B,int A,int Ntwl,int Ntbl, int Ntspd,double NSubbanks,
-             double *Tdecdrive, double *Tdecoder1, double *Tdecoder2,double inrisetime,double *outrisetime, int *nor_inputs,powerDef *power)
-{
-    //double Ceq,Req,Rwire,tf,nextinputtime,vth,tstep;
-	double Ceq,Req,Rwire,tf,nextinputtime,vth;
-	int numstack,tagbits, Nact;
-	int rows, cols;
-	//int l_inv_predecode,l_predec_nor_v,l_predec_nor_h;
-	int l_predec_nor_v,l_predec_nor_h;
-	//double wire_cap, wire_res;
-	double lkgCurrent=0.0, dynPower = 0.0;
-	//v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-    //the final int value is the correct one 
-	//int addr_bits=(int)logtwo( (double)((double)C/(double)(B*A*Ntbl*Ntspd)));
-	int addr_bits=(int) (logtwo( (double)((double)C/(double)(B*A*Ntbl*Ntspd))) + EPSILON);
-	int horizontal_edge = 0;
-	int nr_subarrays_left = 0, v_or_h = 0;
-	int horizontal_step = 0, vertical_step = 0;
-	int h_inv_predecode = 0, v_inv_predecode = 0;
-	double this_delay;
-	int i = 0;
-
-	//v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-	//the final int value is the correct one 
-	//int routing_bits = (int)logtwo( (double)((double)C/(double)B));
-	int routing_bits = (int) (logtwo( (double)((double)C/(double)B)) + EPSILON);
-	int tag_bits_routed;
-
-    rows = C/(8*B*A*Ntbl*Ntspd);
-	if(!force_tag) {
-		//tagbits = ADDRESS_BITS + EXTRA_TAG_BITS-(int)logtwo((double)C)+(int)logtwo((double)A)-(int)(logtwo(NSubbanks));
-		tagbits = (int) (ADDRESS_BITS + EXTRA_TAG_BITS-(int)logtwo((double)C)+(int)logtwo((double)A)-(int)(logtwo(NSubbanks)) + EPSILON);
-	}
-	else {
-		tagbits = force_tag_size;
-	}
-	tag_bits_routed = routing_bits + tagbits;
-	
-
-	cols = tagbits*A*Ntspd/Ntwl ;
-
-	numstack =
-	    (int)ceil((1.0/3.0)*logtwo( (double)((double)C/(double)(B*A*Ntbl*Ntspd))));
-	if (numstack==0) numstack = 1;
-	if (numstack>5) numstack = 5;
-
-	/*dt: see comments in compute_device_widths*/
-	/*dt: The *8 is there because above we mysteriously divide the capacity in BYTES by the number of BITS per wordline */
-	l_predec_nor_v = rows*8; 
-	/*dt: If we follow the original drawings from the TR's, then there is almost no horizontal wires, only the poly for contacting
-	the nor gates. The poly part we don't model right now */
-	l_predec_nor_h = 0;
-
-	
-    /* Calculate rise time.  Consider two inverters */
-    if (NSubbanks > 2) {
-		Ceq = draincap(Waddrdrvp1,PCH,1)+draincap(Waddrdrvn1,NCH,1) +
-		    		gatecap(Wtdecdrivep_first+Wtdecdriven_first,0.0);
-
-    	tf = Ceq*transreson(Waddrdrvn1,NCH,1);
-
-    	nextinputtime = horowitz(0.0,tf,VTHINV360x240,VTHINV360x240,FALL)/
-                                  (VTHINV360x240);
-	} 
-	else {
-		Ceq = draincap(Wdecdrivep,PCH,1)+draincap(Wdecdriven,NCH,1) +
-		    		gatecap(Wtdecdrivep_first+Wtdecdriven_first,0.0);
-
-    	tf = Ceq*transreson(Wdecdriven_first,NCH,1);
-
-    	nextinputtime = horowitz(0.0,tf,VTHINV360x240,VTHINV360x240,FALL)/
-                                  (VTHINV360x240);
-	}
-
-	lkgCurrent = 0.5*cmos_ileakage(Wtdecdriven_first,Wtdecdrivep_first,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp)*1.0/(Ntwl*Ntbl);
-
-    *Tdecdrive = 0;
-
-	/*dt: the first inverter driving a bigger inverter*/
-    Ceq = draincap(Wtdecdrivep_first,PCH,1)+draincap(Wtdecdriven_first,NCH,1) +
-    		  gatecap(Wtdecdrivep_second+Wtdecdriven_second,0.0);
-
-    tf = Ceq*transreson(Wtdecdriven_first,NCH,1);
-	
-     this_delay = horowitz(0.0,tf,VTHINV360x240,VTHINV360x240,RISE);
-
-	*Tdecdrive += this_delay;
-	inrisetime = this_delay/(1.0-VTHINV360x240);
-
-	
-	if(nr_tdectreesegments) {
-		Ceq = draincap(Wtdecdrivep_second,PCH,1)+draincap(Wtdecdriven_second,NCH,1) + 
-			  gatecap(3*WtdecdrivetreeN[nr_tdectreesegments-1],0) + Ctdectreesegments[nr_tdectreesegments-1];
-		Req = transreson(Wtdecdriven_second,NCH,1) + Rtdectreesegments[nr_tdectreesegments-1]; 
-
-		tf = Ceq*Req;
-		this_delay = horowitz(inrisetime,tf,VTHINV360x240,VTHINV360x240,RISE);
-
-		*Tdecdrive += this_delay;
-		inrisetime = this_delay/(1.0-VTHINV360x240);
-
-		dynPower+= tag_bits_routed*Ceq*.5*VddPow*VddPow;
-		lkgCurrent += tag_bits_routed*0.5*cmos_ileakage(Wtdecdriven_second,Wtdecdrivep_second,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp)
-			          *1.0/(Ntwl*Ntbl);
-	}
-	
-
-
-	/*dt: doing all the H-tree segments*/
-	
-	for(i=nr_tdectreesegments; i>2;i--) {
-		/*dt: this too should alternate...*/
-		Ceq = (Ctdectreesegments[i-2] + draincap(2*WtdecdrivetreeN[i-1],PCH,1)+ draincap(WtdecdrivetreeN[i-1],NCH,1) + 
-			  gatecap(3*WtdecdrivetreeN[i-2],0.0));
-		Req = (Rtdectreesegments[i-2] + transreson(WtdecdrivetreeN[i-1],NCH,1));
-		tf = Req*Ceq;
-		/*dt: This shouldn't be all falling, but interleaved. Have to fix that at some point.*/
-        this_delay = horowitz(inrisetime,tf,VTHINV360x240,VTHINV360x240,RISE);
-		*Tdecdrive += this_delay;
-		inrisetime = this_delay/(1.0 - VTHINV360x240);
-
-		dynPower+= tag_bits_routed*Ceq*.5*VddPow*VddPow;
-		lkgCurrent += 1.0/(Ntwl*Ntbl)*pow(2,nr_tdectreesegments - i)*tag_bits_routed*0.5*cmos_ileakage(WtdecdrivetreeN[i-1],2*WtdecdrivetreeN[i-1],Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-
-	}
-
-	if(nr_tdectreesegments) {
-		//v4.1: Change below, gatecap(Wtdec3to8n+Wdec3to8p,10.0) -> gatecap(Wtdec3to8n+Wtdec3to8p,10.0)
-		//Ceq = 4*gatecap(Wtdec3to8n+Wdec3to8p,10.0) + Ctdectreesegments[0] + 
-			    //draincap(2*WtdecdrivetreeN[0],PCH,1)+ draincap(WtdecdrivetreeN[0],NCH,1); 
-		Ceq = 4*gatecap(Wtdec3to8n+Wtdec3to8p,10.0 / FUDGEFACTOR) + Ctdectreesegments[0] + 
-			    draincap(2*WtdecdrivetreeN[0],PCH,1)+ draincap(WtdecdrivetreeN[0],NCH,1); 
-		Rwire = Rtdectreesegments[0];
-		tf = (Rwire + transreson(2*WtdecdrivetreeN[0],PCH,1))*Ceq;
-
-		dynPower+= tag_bits_routed*Ceq*.5*VddPow*VddPow;
-		lkgCurrent += 1.0/(Ntwl*Ntbl)*pow(2,nr_tdectreesegments)*tag_bits_routed*0.5*cmos_ileakage(WtdecdrivetreeN[0],2*WtdecdrivetreeN[0],Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-	}
-	else {
-		//v4.1: Change below, gatecap(Wtdec3to8n+Wdec3to8p,10.0) -> gatecap(Wtdec3to8n+Wtdec3to8p,10.0)
-		//Ceq = 4*gatecap(Wtdec3to8n+Wdec3to8p,10.0) + Ctdectreesegments[0] + 
-			    //draincap(Wtdecdrivep_second,PCH,1)+ draincap(Wtdecdriven_second,NCH,1); 
-		Ceq = 4*gatecap(Wtdec3to8n+Wtdec3to8p,10.0 / FUDGEFACTOR) + Ctdectreesegments[0] + 
-			    draincap(Wtdecdrivep_second,PCH,1)+ draincap(Wtdecdriven_second,NCH,1); 
-		Rwire = Rtdectreesegments[0];
-		tf = (Rwire + transreson(Wtdecdrivep_second,PCH,1))*Ceq;
-
-		dynPower+= tag_bits_routed*Ceq*.5*VddPow*VddPow;
-		lkgCurrent += 1.0/(Ntwl*Ntbl)*tag_bits_routed*0.5*cmos_ileakage(Wtdecdriven_second,Wtdecdrivep_second,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-	}
-	 this_delay = horowitz(inrisetime,tf,VTHINV360x240,VTHNAND60x120,FALL);
-	 *Tdecdrive += this_delay;
-	 nextinputtime = this_delay/VTHNAND60x120;
-
-    // there are 8 nand gates in each 3-8 decoder. since these transistors are
-	// stacked, we use a stacking factor of 1/5 (0.2). 0.5 signifies that we
-	// are taking the average of both nmos and pmos transistors.
-
-	lkgCurrent += 8*0.2*0.5* cmos_ileakage(Wtdec3to8n,Wtdec3to8p,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp)*
-		// For the all the 3-8 decoders per quad:
-		ceil((1.0/3.0)*logtwo( (double)((double)C/(double)(B*A*Ntbl*Ntspd))))
-		/*for all the quads*/
-		*0.25;
-
-
-    /* second stage: driving a bunch of nor gates with a nand */
-
-
-    Ceq = 3*draincap(Wtdec3to8p,PCH,1) +draincap(Wtdec3to8n,NCH,3) +
-           gatecap(WtdecNORn+WtdecNORp,((numstack*40) / FUDGEFACTOR + 20.0 / FUDGEFACTOR))*rows +
-           GlobalCbitmetal*(l_predec_nor_v) + GlobalCwordmetal*(l_predec_nor_h);
-
-    Rwire = GlobalRbitmetal*(l_predec_nor_v)/2 + GlobalRwordmetal*(l_predec_nor_h)/2;
-
-    tf = Ceq*(Rwire+transreson(Wtdec3to8n,NCH,3));
-
-    // 0.2 is the stacking factor, 0.5 for averging of nmos and pmos leakage
-	// and since there are rows number of nor gates:
-
-	lkgCurrent += 0.5*0.2* rows * cmos_ileakage(WtdecNORn,WtdecNORp,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-
-	// Number of active blocks in Ntwl modules
-	if (Ntwl/Ntspd < 1) {
-		Nact = 1;
-	}
-	else {
-		Nact = Ntwl/Ntspd;
-	}
-
-	dynPower+=0.5*Nact*Ceq*VddPow*VddPow*4*ceil((1.0/3.0)*logtwo( (double)((double)C/(double)(B*A*Ntbl*Ntspd))));
-	//dynPower+=Ntwl*Ntbl*Ceq*VddPow*VddPow*4*ceil((1.0/3.0)*logtwo( (double)((double)C/(double)(B*A*Ntbl*Ntspd))));
-
-    /* we only want to charge the output to the threshold of the
-       nor gate.  But the threshold depends on the number of inputs
-       to the nor.  */
-
-    switch(numstack) {
-	    case 1: vth = VTHNOR12x4x1; break;
-        case 2: vth = VTHNOR12x4x2; break;
-        case 3: vth = VTHNOR12x4x3; break;
-        case 4: vth = VTHNOR12x4x4; break;
-        case 5: vth = VTHNOR12x4x4; break;
-        case 6: vth = VTHNOR12x4x4; break;
-        default: printf("error:numstack=%d\n",numstack);
-                   printf("Cacti does not support a series stack of %d transistors !\n",numstack);
-		exit(0);
-        break;
-	}
-
-    *Tdecoder1 = horowitz(nextinputtime,tf,VTHNAND60x120,vth,RISE);
-    nextinputtime = *Tdecoder1/(1.0-vth);
-
-    /* Final stage: driving an inverter with the nor */
-
-    Req = transreson(WtdecNORp,PCH,numstack);
-    Ceq = (gatecap(Wtdecinvn+Wtdecinvp,20.0 / FUDGEFACTOR)+numstack*draincap(WtdecNORn,NCH,1)+
-               draincap(WtdecNORp,PCH,numstack));
-
-    tf = Req*Ceq;
-    *Tdecoder2 = horowitz(nextinputtime,tf,vth,VSINV,FALL);
-    *outrisetime = *Tdecoder2/(VSINV);
-	*nor_inputs=numstack;
-
-	dynPower+=Ceq*VddPow*VddPow;
-
-	lkgCurrent += 0.5* rows * cmos_ileakage(Wtdecinvn,Wtdecinvp,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-
-	power->readOp.dynamic = dynPower;
-	power->readOp.leakage = (lkgCurrent * VddPow) * Ntwl * Ntbl;
-
-	power->writeOp.dynamic = dynPower;
-	power->writeOp.leakage = (lkgCurrent * VddPow) * Ntwl * Ntbl;
-
-    return(*Tdecdrive+*Tdecoder1+*Tdecoder2);
-}
-
-/*dt: still have to add leakage and gate width calc to this function */
-double fa_tag_delay (int C,int B,int Ntwl,int Ntbl,int Ntspd,
-			  double *Tagdrive, double *Tag1, double *Tag2, double *Tag3, double *Tag4, double *Tag5, double *outrisetime,
-			  int *nor_inputs,
-			  powerDef *power)
-{
-  //double Ceq, Req, Rwire, rows, tf, nextinputtime, vth, tstep;
-  double Ceq, Req, Rwire, rows, tf, nextinputtime;
-  //int numstack;
-  double Tagdrive1 = 0, Tagdrive2 = 0;
-  double Tagdrive0a = 0, Tagdrive0b = 0;
-  double TagdriveA = 0, TagdriveB = 0;
-  double TagdriveA1 = 0, TagdriveB1 = 0;
-  double TagdriveA2 = 0, TagdriveB2 = 0;
+  calc_time_mt_wrapper_struct * calc_obj = (calc_time_mt_wrapper_struct *) void_obj;
+  uint32_t tid                   = calc_obj->tid;
+  list<mem_array *> & data_arr   = calc_obj->data_arr;
+  list<mem_array *> & tag_arr    = calc_obj->tag_arr;
+  bool is_tag                    = calc_obj->is_tag;
+  bool pure_ram                  = calc_obj->pure_ram;
+  bool is_main_mem               = calc_obj->is_main_mem;
+  double Nspd_min                = calc_obj->Nspd_min;
+  const ArrayEdgeToBankEdgeHtreeSizing * arr_edge_to_bank_edge_htree_sizing = (calc_obj->ptr_arr_edge_to_bank_edge_htree_sizing);
+  const BankHtreeSizing * bank_htree_sizing = (calc_obj->ptr_bank_htree_sizing);
+  data_arr.clear();
+  data_arr.push_back(new mem_array);
+  tag_arr.clear();
+  tag_arr.push_back(new mem_array);
+
+  uint32_t Ndwl_niter = _log2(MAXDATAN) + 1;
+  uint32_t Ndbl_niter = _log2(MAXDATAN) + 1;
+  uint32_t Ndcm_niter = _log2(MAX_COL_MUX) + 1;
+  uint32_t niter      = Ndwl_niter * Ndbl_niter * Ndcm_niter;
+
+  bool is_valid_partition;
   
-  double dynPower = 0.0;
-
-  rows = C / (B * Ntbl);
-
-  /* Calculate rise time.  Consider two inverters */
-
-  Ceq = draincap (Wdecdrivep, PCH, 1) + draincap (Wdecdriven, NCH, 1) +
-    gatecap (Wdecdrivep + Wdecdriven, 0.0);
-  tf = Ceq * transreson (Wdecdriven, NCH, 1);
-  nextinputtime = horowitz (0.0, tf, VTHINV360x240, VTHINV360x240, FALL) /
-    (VTHINV360x240);
-
-  Ceq = draincap (Wdecdrivep, PCH, 1) + draincap (Wdecdriven, NCH, 1) +
-    gatecap (Wdecdrivep + Wdecdriven, 0.0);
-  tf = Ceq * transreson (Wdecdrivep, PCH, 1);
-  nextinputtime = horowitz (nextinputtime, tf, VTHINV360x240, VTHINV360x240,
-			    RISE) / (1.0 - VTHINV360x240);
-
-  // If tag bitline divisions, add extra driver
-
-  if (Ntbl > 1)
-    {
-      Ceq = draincap (Wfadrivep, PCH, 1) + draincap (Wfadriven, NCH, 1) +
-	gatecap (Wfadrive2p + Wfadrive2n, 0.0);
-      tf = Ceq * transreson (Wfadriven, NCH, 1);
-      TagdriveA = horowitz (nextinputtime, tf, VSINV, VSINV, FALL);
-      nextinputtime = TagdriveA / (VSINV);
-      dynPower += .5 * Ceq * VddPow * VddPow * ADDRESS_BITS;
-
-      if (Ntbl <= 4)
-	{
-	  Ceq =
-	    draincap (Wfadrive2p, PCH, 1) + draincap (Wfadrive2n, NCH,
-						      1) +
-	    gatecap (Wfadecdrive1p + Wfadecdrive1n,
-		     10.0 / FUDGEFACTOR) * 2 + +FACwordmetal * sqrt ((rows +
-							1) * Ntbl) / 2 +
-	    FACbitmetal * sqrt ((rows + 1) * Ntbl) / 2;
-	  Rwire =
-	    FARwordmetal * sqrt ((rows + 1) * Ntbl) * .5 / 2 +
-	    FARbitmetal * sqrt ((rows + 1) * Ntbl) * .5 / 2;
-	  tf = Ceq * (transreson (Wfadrive2p, PCH, 1) + Rwire);
-	  TagdriveB = horowitz (nextinputtime, tf, VSINV, VSINV, RISE);
-	  nextinputtime = TagdriveB / (1.0 - VSINV);
-	  dynPower += Ceq * VddPow * VddPow * ADDRESS_BITS * .5 * 2;
-	}
-      else
-	{
-	  Ceq =
-	    draincap (Wfadrive2p, PCH, 1) + draincap (Wfadrive2n, NCH,
-						      1) +
-	    gatecap (Wfadrivep + Wfadriven,
-		     10.0 / FUDGEFACTOR) * 2 + +FACwordmetal * sqrt ((rows +
-							1) * Ntbl) / 2 +
-	    FACbitmetal * sqrt ((rows + 1) * Ntbl) / 2;
-	  Rwire =
-	    FARwordmetal * sqrt ((rows + 1) * Ntbl) * .5 / 2 +
-	    FARbitmetal * sqrt ((rows + 1) * Ntbl) * .5 / 2;
-	  tf = Ceq * (transreson (Wfadrive2p, PCH, 1) + Rwire);
-	  TagdriveB = horowitz (nextinputtime, tf, VSINV, VSINV, RISE);
-	  nextinputtime = TagdriveB / (1.0 - VSINV);
-	  dynPower += Ceq * VddPow * VddPow * ADDRESS_BITS * .5 * 4;
-
-	  Ceq = draincap (Wfadrivep, PCH, 1) + draincap (Wfadriven, NCH, 1) +
-	    gatecap (Wfadrive2p + Wfadrive2n, 10.0 / FUDGEFACTOR);
-	  tf = Ceq * transreson (Wfadriven, NCH, 1);
-	  TagdriveA1 = horowitz (nextinputtime, tf, VSINV, VSINV, FALL);
-	  nextinputtime = TagdriveA1 / (VSINV);
-	  dynPower += .5 * Ceq * VddPow * VddPow * ADDRESS_BITS;
-
-	  if (Ntbl <= 16)
-	    {
-	      Ceq =
-		draincap (Wfadrive2p, PCH, 1) + draincap (Wfadrive2n, NCH,
-							  1) +
-		gatecap (Wfadecdrive1p + Wfadecdrive1n,
-			 10.0 / FUDGEFACTOR) * 2 + +FACwordmetal * sqrt ((rows +
-							    1) * Ntbl) / 4 +
-		FACbitmetal * sqrt ((rows + 1) * Ntbl) / 4;
-	      Rwire =
-		FARwordmetal * sqrt ((rows + 1) * Ntbl) * .5 / 4 +
-		FARbitmetal * sqrt ((rows + 1) * Ntbl) * .5 / 4;
-	      tf = Ceq * (transreson (Wfadrive2p, PCH, 1) + Rwire);
-	      TagdriveB1 = horowitz (nextinputtime, tf, VSINV, VSINV, RISE);
-	      nextinputtime = TagdriveB1 / (1.0 - VSINV);
-	      dynPower += Ceq * VddPow * VddPow * ADDRESS_BITS * .5 * 8;
-	    }
-	  else
-	    {
-	      Ceq =
-		draincap (Wfadrive2p, PCH, 1) + draincap (Wfadrive2n, NCH,
-							  1) +
-		gatecap (Wfadrivep + Wfadriven,
-			 10.0 / FUDGEFACTOR) * 2 + +FACwordmetal * sqrt ((rows +
-							    1) * Ntbl) / 4 +
-		FACbitmetal * sqrt ((rows + 1) * Ntbl) / 4;
-	      Rwire =
-		FARwordmetal * sqrt ((rows + 1) * Ntbl) * .5 / 4 +
-		FARbitmetal * sqrt ((rows + 1) * Ntbl) * .5 / 4;
-	      tf = Ceq * (transreson (Wfadrive2p, PCH, 1) + Rwire);
-	      TagdriveB1 = horowitz (nextinputtime, tf, VSINV, VSINV, RISE);
-	      nextinputtime = TagdriveB1 / (1.0 - VSINV);
-	      dynPower += Ceq * VddPow * VddPow * ADDRESS_BITS * .5 * 8;
-
-	      Ceq =
-		draincap (Wfadrivep, PCH, 1) + draincap (Wfadriven, NCH,
-							 1) +
-		gatecap (Wfadrive2p + Wfadrive2n, 10.0 / FUDGEFACTOR);
-	      tf = Ceq * transreson (Wfadriven, NCH, 1);
-	      TagdriveA2 = horowitz (nextinputtime, tf, VSINV, VSINV, FALL);
-	      nextinputtime = TagdriveA2 / (VSINV);
-	      dynPower += .5 * Ceq * VddPow * VddPow * ADDRESS_BITS;
-
-	      Ceq =
-		draincap (Wfadrive2p, PCH, 1) + draincap (Wfadrive2n, NCH,
-							  1) +
-		gatecap (Wfadecdrive1p + Wfadecdrive1n,
-			 10.0 / FUDGEFACTOR) * 2 + +FACwordmetal * sqrt ((rows +
-							    1) * Ntbl) / 8 +
-		FACbitmetal * sqrt ((rows + 1) * Ntbl) / 8;
-	      Rwire =
-		FARwordmetal * sqrt ((rows + 1) * Ntbl) * .5 / 8 +
-		FARbitmetal * sqrt ((rows + 1) * Ntbl) * .5 / 8;
-	      tf = Ceq * (transreson (Wfadrive2p, PCH, 1) + Rwire);
-	      TagdriveB2 = horowitz (nextinputtime, tf, VSINV, VSINV, RISE);
-	      nextinputtime = TagdriveB2 / (1.0 - VSINV);
-	      dynPower += Ceq * VddPow * VddPow * ADDRESS_BITS * .5 * 16;
-	    }
-	}
-    }
-
-  /* Two more inverters for enable delay */
-
-  Ceq = draincap (Wfadecdrive1p, PCH, 1) + draincap (Wfadecdrive1n, NCH, 1)
-    + gatecap (Wfadecdrive2p + Wfadecdrive2n, 0.0);
-  tf = Ceq * transreson (Wfadecdrive1n, NCH, 1);
-  Tagdrive0a = horowitz (nextinputtime, tf, VSINV, VSINV, FALL);
-  nextinputtime = Tagdrive0a / (VSINV);
-  dynPower += .5 * Ceq * VddPow * VddPow * ADDRESS_BITS * Ntbl;
-
-  Ceq = draincap (Wfadecdrive2p, PCH, 1) + draincap (Wfadecdrive2n, NCH, 1) +
-    +gatecap (Wfadecdrivep + Wfadecdriven, 10.0 / FUDGEFACTOR)
-    + gatecap (Wfadecdrive2p + Wfadecdrive2n, 10.0 / FUDGEFACTOR);
-  tf = Ceq * transreson (Wfadecdrive2p, PCH, 1);
-  Tagdrive0b = horowitz (nextinputtime, tf, VSINV, VSINV, RISE);
-  nextinputtime = Tagdrive0b / (VSINV);
-  dynPower += Ceq * VddPow * VddPow * ADDRESS_BITS * .5 * Ntbl;
-
-  /* First stage */
-
-  Ceq = draincap (Wfadecdrive2p, PCH, 1) + draincap (Wfadecdrive2n, NCH, 1) +
-    gatecap (Wfadecdrivep + Wfadecdriven, 10.0 / FUDGEFACTOR);
-  tf = Ceq * transresswitch (Wfadecdrive2n, NCH, 1);
-  Tagdrive1 = horowitz (nextinputtime, tf, VSINV, VTHFA1, FALL);
-  nextinputtime = Tagdrive1 / VTHFA1;
-  dynPower += Ceq * VddPow * VddPow * ADDRESS_BITS * .5 * Ntbl;
-
-  Ceq = draincap (Wfadecdrivep, PCH, 2) + draincap (Wfadecdriven, NCH, 2)
-    + draincap (Wfaprechn, NCH, 1)
-    + gatecap (Wdummyn, 10.0 / FUDGEFACTOR) * (rows + 1) + FACbitmetal * (rows + 1);
-
-  Rwire = FARbitmetal * (rows + 1) * .5;
-  tf = (Rwire + transreson (Wfadecdrivep, PCH, 1) +
-	transresswitch (Wfadecdrivep, PCH, 1)) * Ceq;
-  Tagdrive2 = horowitz (nextinputtime, tf, VTHFA1, VTHFA2, RISE);
-  nextinputtime = Tagdrive2 / (1 - VTHFA2);
-
-  *Tagdrive =
-    Tagdrive1 + Tagdrive2 + TagdriveA + TagdriveB + TagdriveA1 + TagdriveA2 +
-    TagdriveB1 + TagdriveB2 + Tagdrive0a + Tagdrive0b;
-  dynPower += Ceq * VddPow * VddPow * ADDRESS_BITS * Ntbl;
-
-  /* second stage */
-
-  Ceq = .5 * ADDRESS_BITS * 2 * draincap (Wdummyn, NCH, 2)
-    + draincap (Wfaprechp, PCH, 1)
-    + gatecap (Waddrnandn + Waddrnandp, 10.0 / FUDGEFACTOR) + FACwordmetal * ADDRESS_BITS;
-  Rwire = FARwordmetal * ADDRESS_BITS * .5;
-  tf =
-    Ceq * (Rwire + transreson (Wdummyn, NCH, 1) +
-	   transreson (Wdummyn, NCH, 1));
-  *Tag1 = horowitz (nextinputtime, tf, VTHFA2, VTHFA3, FALL);
-  nextinputtime = *Tag1 / VTHFA3;
-  dynPower += Ceq * VddPow * VddPow * rows * Ntbl;
-
-  /* third stage */
-
-  Ceq = draincap (Waddrnandn, NCH, 2)
-    + 2 * draincap (Waddrnandp, PCH, 1)
-    + gatecap (Wdummyinvn + Wdummyinvp, 10.0 / FUDGEFACTOR);
-  tf = Ceq * (transresswitch (Waddrnandp, PCH, 1));
-  *Tag2 = horowitz (nextinputtime, tf, VTHFA3, VTHFA4, RISE);
-  nextinputtime = *Tag2 / (1 - VTHFA4);
-  dynPower += Ceq * VddPow * VddPow * rows * Ntbl;
-
-  /* fourth stage */
-
-  Ceq = (rows) * (gatecap (Wfanorn + Wfanorp, 10.0 / FUDGEFACTOR))
-    + draincap (Wdummyinvn, NCH, 1)
-    + draincap (Wdummyinvp, PCH, 1) + FACbitmetal * rows;
-  Rwire = FARbitmetal * rows * .5;
-  Req = Rwire + transreson (Wdummyinvn, NCH, 1);
-  tf = Req * Ceq;
-  *Tag3 = horowitz (nextinputtime, tf, VTHFA4, VTHFA5, FALL);
-  *outrisetime = *Tag3 / VTHFA5;
-  dynPower += Ceq * VddPow * VddPow * Ntbl;
-
-  /* fifth stage */
-
-  Ceq = draincap (Wfanorp, PCH, 2)
-    + 2 * draincap (Wfanorn, NCH, 1) + gatecap (Wfainvn + Wfainvp, 10.0 / FUDGEFACTOR);
-  tf =
-    Ceq * (transresswitch (Wfanorp, PCH, 1) + transreson (Wfanorp, PCH, 1));
-  *Tag4 = horowitz (nextinputtime, tf, VTHFA5, VTHFA6, RISE);
-  nextinputtime = *Tag4 / (1 - VTHFA6);
-  dynPower += Ceq * VddPow * VddPow;
-
-  /* final stage */
-
-  Ceq = (gatecap (Wdecinvn + Wdecinvp, 20.0 / FUDGEFACTOR) +
-	 +draincap (Wfainvn, NCH, 1) + draincap (Wfainvp, PCH, 1));
-  Req = transresswitch (Wfainvn, NCH, 1);
-  tf = Req * Ceq;
-  *Tag5 = horowitz (nextinputtime, tf, VTHFA6, VSINV, FALL);
-  *outrisetime = *Tag5 / VSINV;
-  dynPower += Ceq * VddPow * VddPow;
-
-  //      if (Ntbl==32)
-  //        fprintf(stderr," 1st - %f %f\n 2nd - %f %f\n 3rd - %f %f\n 4th - %f %f\n 5th - %f %f\nPD : %f\nNAND : %f\n INV : %f\n NOR : %f\n INV : %f\n", TagdriveA*1e9, TagdriveB*1e9, TagdriveA1*1e9, TagdriveB1*1e9, TagdriveA2*1e9, TagdriveB2*1e9, Tagdrive0a*1e9,Tagdrive0b*1e9,Tagdrive1*1e9, Tagdrive2*1e9, *Tag1*1e9, *Tag2*1e9, *Tag3*1e9, *Tag4*1e9, *Tag5*1e9);
-  power->writeOp.dynamic = dynPower;
-  power->readOp.dynamic = dynPower;
-  return (*Tagdrive + *Tag1 + *Tag2 + *Tag3 + *Tag4 + *Tag5);
-}
-
-
-/*----------------------------------------------------------------------*/
-
-/* Data array wordline delay (see section 6.2 of tech report) */
-
-/*dt: incorporated leakage calc from eCacti*/
-double wordline_delay (int C, int B,int A,int Ndwl, int Ndbl, double Nspd,
-				double inrisetime,
-				double *outrisetime,powerDef *power)
-{
-  //double tf, nextinputtime, Ceq, Req, Rline, Cline;
-  double tf, nextinputtime, Ceq, Rline, Cline;
-  int cols, Nact;
-  double lkgCurrent=0.0, dynPower=0.0;
-  double Tworddrivedel,Twordchargedel;
-
-  //v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-  //the final int value is the correct one 
-  
-  //cols = CHUNKSIZE*B*A*Nspd/Ndwl;
-  cols = (int) (CHUNKSIZE*B*A*Nspd/Ndwl + EPSILON);
-
-    /* Choose a transistor size that makes sense */
-    /* Use a first-order approx */
-
-    Ceq = draincap(Wdecinvn,NCH,1) + draincap(Wdecinvp,PCH,1) +
-             gatecap(WwlDrvp+WwlDrvn,20.0 / FUDGEFACTOR);
-
-    tf = transreson(Wdecinvp,PCH,1)*Ceq;
-
-    // atleast one wordline driver in each block switches
-    lkgCurrent = 0.5 * cmos_ileakage(WwlDrvn,WwlDrvp,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp); 
-
-	dynPower+=Ceq*VddPow*VddPow;
-
-    Tworddrivedel = horowitz(inrisetime,tf,VSINV,VSINV,RISE);
-    nextinputtime = Tworddrivedel/(1.0-VSINV);
-
-    Cline = (gatecappass(Wmemcella,(BitWidth-2*Wmemcella)/2.0)+
-             gatecappass(Wmemcella,(BitWidth-2*Wmemcella)/2.0)+
-             Cwordmetal)*cols+
-            draincap(WwlDrvn,NCH,1) + draincap(WwlDrvp,PCH,1);
-    Rline = Rwordmetal*cols/2;
-
-    tf = (transreson(WwlDrvp,PCH,1)+Rline)*Cline;
-
-    Twordchargedel = horowitz(nextinputtime,tf,VSINV,VSINV,FALL);
-    *outrisetime = Twordchargedel/VSINV;
-
-	dynPower+=Cline*VddPow*VddPow;
-
-	//	fprintf(stderr, "%d %f %f\n", cols, Tworddrivedel*1e3, Twordchargedel*1e3);
-	// Number of active blocks in Ndwl modules
-	if (Ndwl/Nspd < 1) {
-		Nact = 1;
-	}
-	else {
-		//v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-        //the final int value is the correct one 
-		//Nact = Ndwl/Nspd;
-		Nact = (int) (Ndwl/Nspd + EPSILON);
-	}
-
-	power->readOp.dynamic = dynPower*Nact;
-	power->readOp.leakage = lkgCurrent*Ndwl*Ndbl * VddPow;
-
-	power->writeOp.dynamic = dynPower*Nact;
-	power->writeOp.leakage = lkgCurrent*Ndwl*Ndbl * VddPow;
-	// leakage power for the wordline driver to be accounted in the decoder module..
-    return(Tworddrivedel+Twordchargedel);
-}
-/*----------------------------------------------------------------------*/
-
-/* Tag array wordline delay (see section 6.3 of tech report) */
-
-/*dt: incorporated leakage calc from eCacti*/
-double wordline_tag_delay (int C,int B,int A,
-						   int Ntspd,int Ntwl,int Ntbl,double NSubbanks,
-						   double inrisetime,double *outrisetime,powerDef *power)
-{
-	double tf;
-    double Cline,Rline,Ceq,nextinputtime;
-    int tagbits, Nact;
-    double lkgCurrent=0.0, dynPower=0.0;
-    double Tworddrivedel,Twordchargedel;
-    int cols;
-    double Cload;
-
-
-	if(!force_tag) {
-		//v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-		//the final int value is the correct one 
-		//tagbits = ADDRESS_BITS + EXTRA_TAG_BITS-(int)logtwo((double)C)+(int)logtwo((double)A)-(int)(logtwo(NSubbanks));
-		tagbits = (int) (ADDRESS_BITS + EXTRA_TAG_BITS-(int)logtwo((double)C)+(int)logtwo((double)A)-(int)(logtwo(NSubbanks)) + EPSILON);
-	}
-	else {
-		tagbits = force_tag_size;
-	}
-	cols = tagbits * A * Ntspd/Ntwl;
-
-    // capacitive load on the wordline - C_int + C_memCellLoad * NCells
-	Cline = (gatecappass(Wmemcella,(BitWidth-2*Wmemcella)/2.0)+
-			 gatecappass(Wmemcella,(BitWidth-2*Wmemcella)/2.0)+ TagCwordmetal)*cols;
-
-	Cload = Cline / gatecap(1.0,0.0);
-	// apprx width of the driver for optimal delay
-
-	Wtdecinvn = Cload*SizingRatio/3; Wtdecinvp = 2*Cload*SizingRatio/3;
-
-    /* first stage */
-
-    Ceq = draincap(Wtdecinvn,NCH,1) + draincap(Wtdecinvp,PCH,1) +
-              gatecap(WtwlDrvn+WtwlDrvp,20.0 / FUDGEFACTOR);
-    tf = transreson(Wtdecinvn,NCH,1)*Ceq;
-
-    Tworddrivedel = horowitz(inrisetime,tf,VSINV,VSINV,RISE);
-    nextinputtime = Tworddrivedel/(1.0-VSINV);
-
-    dynPower+=Ceq*VddPow*VddPow;
-
-    /* second stage */
-    Cline = (gatecappass(Wmemcella,(BitWidth-2*Wmemcella)/2.0)+
-             gatecappass(Wmemcella,(BitWidth-2*Wmemcella)/2.0)+
-             TagCwordmetal)*tagbits*A*Ntspd/Ntwl+
-            draincap(WtwlDrvn,NCH,1) + draincap(WtwlDrvp,PCH,1);
-    Rline = TagRwordmetal*tagbits*A*Ntspd/(2*Ntwl);
-    tf = (transreson(WtwlDrvp,PCH,1)+Rline)*Cline;
-
-	lkgCurrent = 0.5 * cmos_ileakage(WtwlDrvn,WtwlDrvp,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-
-    Twordchargedel = horowitz(nextinputtime,tf,VSINV,VSINV,FALL);
-    *outrisetime = Twordchargedel/VSINV;
-
-	dynPower+=Cline*VddPow*VddPow;
-
-	// Number of active blocks in Ntwl modules
-	if (Ntwl/Ntspd < 1) {
-		Nact = 1;
-	}
-	else {
-		Nact = Ntwl/Ntspd;
-	}
-
-
-	power->readOp.dynamic = dynPower*Nact;
-	power->readOp.leakage = lkgCurrent *Ntwl*Ntbl* VddPow;
-
-	power->writeOp.dynamic = dynPower*Nact;
-	power->writeOp.leakage = lkgCurrent *Ntwl*Ntbl* VddPow;
-
-	// leakage power for the wordline drivers to be accounted in the decoder module..
-    return(Tworddrivedel+Twordchargedel);
-
-}
-
-/*----------------------------------------------------------------------*/
-
-/* Data array bitline: (see section 6.4 in tech report) */
-
-/*dt: integrated width calc and leakage from eCacti */
-/* Tpre is precharge delay */
-double bitline_delay (int C,int A,int B,int Ndwl,int Ndbl,double Nspd,
-			   double inrisetime,
-			   double *outrisetime,powerDef *power,double Tpre)
-{
-  //double Tbit, Cline, Ccolmux, Rlineb, r1, r2, c1, c2, a, b, c;
-  double Tbit, Cline, Ccolmux, Rlineb, r1, r2, c1, c2;
-  double m, tstep, Rpdrive;
-  double Cbitrow;		/* bitline capacitance due to access transistor */
-  int rows, cols, Nact;
-  int muxway;
-  double dynWrtEnergy = 0.0, dynRdEnergy = 0.0;
-  double Icell, Iport;
-
-  // leakage current of a memory bit-cell
-  /*dt: access port transistors only NMOS of course, hence pWidth = 0 */
-  Iport = cmos_ileakage(Wmemcella   ,0           ,Vt_cell_nmos_high,Vthn,Vt_cell_pmos_high,Vthp); 
-  Icell = cmos_ileakage(Wmemcellnmos,Wmemcellpmos,Vt_cell_nmos_high,Vthn,Vt_cell_pmos_high,Vthp);
-
-  // number of bitcells = Cache size in bytes * (8 
-  // ECC and other overhead)  = C*CHUNKSIZE
-  // leakage current for the whole memory core -
-  //
-  Icell *= C*CHUNKSIZE;
-  Iport *= C*CHUNKSIZE;
-
-  Cbitrow = draincap (Wmemcella, NCH, 1) / 2.0;	/* due to shared contact */
-  //v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-  //the final int value is the correct one 
-  //rows = C / (B * A * Ndbl * Nspd);
-  //cols = CHUNKSIZE * B * A * Nspd / Ndwl;
-  rows = (int) (C / (B * A * Ndbl * Nspd) + EPSILON);
-  cols = (int) (CHUNKSIZE * B * A * Nspd / Ndwl + EPSILON);
-
-  // Determine equivalent width of bitline precharge transistors
-   	// we assume that Precharge time = decoder delay + wordlineDriver delay time.
-   	// This is because decoder delay + wordline driver delay contributes to most
-   	// of the read/write access times.
-
-	Cline = rows*(Cbitrow+Cbitmetal);
-	Rpdrive = Tpre/(Cline*log(VSINV)*-1.0);
-	Wbitpreequ = restowidth(Rpdrive,PCH);
-
-	// Note that Wbitpreequ is the equiv. pch transistor width
-	Wpch = 2.0/3.0*Wbitpreequ;
-
-    if (Wpch > Wpchmax) {
-           Wpch = Wpchmax;
-	}
-
-	//v4.1: Expressing all widths in terms of FEATURESIZE of input tech node
-
-	// Isolation transistor width is set to 10 (typical). Its usually wide to reduce
-	// resistance offered for transfer of bitline voltage to sense-amp.
-	Wiso = 12.5*FEATURESIZE;//was 10 micron for the 0.8 micron process
-
-	// width of sense precharge
-	// (depends on width of sense-amp transistors and output driver size)
-	// ToDo: calculate the width of sense-amplifier as a function of access times...
-
-	WsPch = 6.25*FEATURESIZE;   // ToDo: Determine widths of these devices analytically; was 5 micron for the 0.8 micron process
-	WsenseN = 3.75*FEATURESIZE; // sense amplifier N-trans; was 3 micron for the 0.8 micron process
-	WsenseP = 7.5*FEATURESIZE; // sense amplifier P-trans; was 6 micron for the 0.8 micron process
-	WsenseEn = 5*FEATURESIZE; // Sense enable transistor of the sense amplifier; was 4 micron for the 0.8 micron process
-	WoBufP = 10*FEATURESIZE; // output buffer corresponding to the sense amplifier; was 8 micron for the 0.8 micron process
-	WoBufN = 5*FEATURESIZE; //was 4 micron for the 0.8 micron process
-
-	// ToDo: detemine the size of colmux (Wbitmux)
-
-  if (8 * B / BITOUT == 1 && Ndbl * Nspd == 1)
-    {
-      Cline = rows*(Cbitrow+Cbitmetal)+2*draincap(Wbitpreequ,PCH,1);
-      Ccolmux = gatecap(WsenseN+WsenseP,10.0 / FUDGEFACTOR);
-      Rlineb = Rbitmetal*rows/2.0;
-      r1 = Rlineb;
-	  // muxover=1;
-    }
-  else
-    {
-      if (Nspd > MAX_COL_MUX)
-	{
-	  //muxover=8*B/BITOUT;
-	  muxway = MAX_COL_MUX;
-	}
-      else if (8 * B * Nspd / BITOUT > MAX_COL_MUX)
-	{
-	  muxway = MAX_COL_MUX;
-	  // muxover=(8*B/BITOUT)/(MAX_COL_MUX/(Ndbl*Nspd));
-	}
-      else
-	{
-	  muxway = 8 * B * Nspd / BITOUT;
-	  // muxover=1;
-	}
-
-      Cline = rows * (Cbitrow + Cbitmetal) + 2 * draincap (Wbitpreequ, PCH,
-						     1) + draincap(Wiso,PCH,1);
-      Ccolmux = muxway*(draincap(Wiso,PCH,1))+gatecap(WsenseN+WsenseP,10.0 / FUDGEFACTOR);
-
-      Rlineb = Rbitmetal * rows / 2.0;
-      r1 = Rlineb + transreson(Wiso,PCH,1);
-    }
-  r2 = transreson (Wmemcella, NCH, 1) +
-    transreson (Wmemcella * Wmemcellbscale, NCH, 1);
-  c1 = Ccolmux;
-  c2 = Cline;
-
-  /*dt: If a wordline segment is shorter than a set, then multiple segments have to be activated */
-  if (Ndwl < Nspd) {
-		Nact = 1;
-  }
-  else {
-	   //v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-       //the final int value is the correct one 
-	   //Nact = Ndwl/Nspd;
-	   Nact = (int) (Ndwl/Nspd + EPSILON);
-  }
-  
-  dynRdEnergy += c1 * VddPow * VddPow * BITOUT * A * muxover;
-  /*
-  was: *power += c2 * VddPow * VbitprePow * cols;
-  now: we only have limited bitline swing thanks to pulsed wordlines. From looking at papers from industry
-  I'm assuming that bitline swing can be limited to Vbitswing 100mV */
-  dynRdEnergy += c2 * VddPow * VbitprePow * cols * Nact;
-
-  /*dt: assuming full swing on the bitlines for writes, but only BITOUT bitlines are activated.*/
-  dynWrtEnergy += c2*VddPow*VddPow*BITOUT;
-
-  //fprintf(stderr, "Pow %f %f\n", c1*VddPow*VddPow*BITOUT*A*muxover*1e9, c2*VddPow*VbitprePow*cols*1e9);
-  tstep =
-    (r2 * c2 + (r1 + r2) * c1) * log ((Vbitpre) / (Vbitpre - Vbitsense));
-
-  /* take input rise time into account */
-
-  m = Vdd / inrisetime;
-  if (tstep <= (0.5 * (Vdd - Vt) / m))
-  //v4.1: Using the CACTI journal paper version equation under this condition
-    {
-      /*a = m;
-      b = 2 * ((Vdd * 0.5) - Vt);
-      c = -2 * tstep * (Vdd - Vt) + 1 / m * ((Vdd * 0.5) - Vt) *
-	((Vdd * 0.5) - Vt);
-      Tbit = (-b + sqrt (b * b - 4 * a * c)) / (2 * a);*/
-
-	 Tbit = sqrt(2*tstep*(Vdd-Vt)/m);
-    }
-  else
-    {
-      Tbit = tstep + (Vdd + Vt) / (2 * m) - (Vdd * 0.5) / m;
-    }
-
-  *outrisetime = Tbit / (log ((Vbitpre - Vbitsense) / Vdd));
-
-
-  power->writeOp.dynamic = dynWrtEnergy;
-  power->writeOp.leakage = (Icell + Iport) * VddPow;
-
-  power->readOp.dynamic = dynRdEnergy;
-  power->readOp.leakage = (Icell + Iport) * VddPow;
-
-  return (Tbit);
-}
-
-
-
-
-/*----------------------------------------------------------------------*/
-
-/* Tag array bitline: (see section 6.4 in tech report) */
-
-/*dt: added leakage from eCacti, fixed bitline swing being too large*/
-double bitline_tag_delay (int C,int A,int B,int Ntwl,int Ntbl,int Ntspd,
-				   double NSubbanks,double inrisetime,
-				   double *outrisetime,powerDef *power,double Tpre)
-{
-  //double Tbit, Cline, Ccolmux, Rlineb, r1, r2, c1, c2, a, b, c;
-  double Tbit, Cline, Ccolmux, Rlineb, r1, r2, c1, c2;
-  double m, tstep, Rpdrive;
-  double Cbitrow;		/* bitline capacitance due to access transistor */
-  int tagbits;
-  int rows, cols, Nact;
-  double lkgCell=0.0;
-  double lkgPort = 0.0;
-  double dynRdEnergy=0.0, dynWrtEnergy=0.0;
-
-  // leakage current of a memory bit-cell
-
-  lkgPort = cmos_ileakage(Wmemcella   ,0           ,Vt_cell_nmos_high,Vthn,Vt_cell_pmos_high,Vthp);
-  lkgCell = cmos_ileakage(Wmemcellnmos,Wmemcellpmos,Vt_cell_nmos_high,Vthn,Vt_cell_pmos_high,Vthp);
-
-  if(!force_tag) {
-    //v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-    //the final int value is the correct one 
-	//tagbits = ADDRESS_BITS + EXTRA_TAG_BITS - (int) logtwo ((double) C) + (int) logtwo ((double) A) -
-				//(int) (logtwo (NSubbanks));
-	tagbits = (int) (ADDRESS_BITS + EXTRA_TAG_BITS - (int) logtwo ((double) C) + (int) logtwo ((double) A) -
-				(int) (logtwo (NSubbanks)) + EPSILON);
-  }
-  else {
-	  tagbits = force_tag_size;
-  }
-
-  Cbitrow = draincap (Wmemcella, NCH, 1) / 2.0;	/* due to shared contact */
-  rows = C / (B * A * Ntbl * Ntspd);
-  cols = tagbits * A * Ntspd / Ntwl;
-
-  // leakage current for the the whole memory core -
-  lkgCell *= C/B*tagbits;
-  lkgPort *= C/B*tagbits;
-
-	// Determine equivalent width of bitline precharge transistors
-   	// we assume that Precharge time = decoder delay + wordlineDriver delay time.
-   	// This is because decoder delay + wordline driver delay contributes to most
-   	// of the read/write access times.
-
-	Cline = rows*(Cbitrow+Cbitmetal);
-	Rpdrive = Tpre/(Cline*log(VSINV)*-1.0);
-	Wtbitpreequ = restowidth(Rpdrive,PCH);
-
-	// Note that Wbitpreequ is the equiv. pch transistor width
-    Wtpch = 2.0/3.0*Wtbitpreequ;
-
-    if (Wtpch > Wpchmax) {
-           Wtpch = Wpchmax;
-    }
-
-	// width of sense precharge
-	// (depends on width of sense-amp transistors and output driver size)
-	// ToDo: calculate the width of sense-amplifier as a function of access times...
-
-     //v4.1: Expressing all widths in terms of FEATURESIZE of input tech node
-
-	WtsPch = 6.25*FEATURESIZE;   // ToDo: Determine widths of these devices analytically; was 5 micron for the 0.8 micron process
-	WtsenseN = 3.75*FEATURESIZE; // sense amplifier N-trans; was 3 micron for the 0.8 micron process
-	WtsenseP = 7.5*FEATURESIZE; // sense amplifier P-trans; was 6 micron for the 0.8 micron process
-	WtsenseEn = 5*FEATURESIZE; // Sense enable transistor of the sense amplifier; was 4 micron for the 0.8 micron process
-	WtoBufP = 10*FEATURESIZE; // output buffer corresponding to the sense amplifier; was 8 micron for the 0.8 micron process
-	WtoBufN = 5*FEATURESIZE; //was 4 micron for the 0.8 micron process
-      Wtiso = 12.5*FEATURESIZE;//was 10 micron for the 0.8 micron process
-
-  //v4.1: Ntspd*Ntbl in the colmux of the else condition does not make sense and overestimates
-  //tag bitline delay by a huge amount when Ntspd and Ndbl are large. Fixing this and fixing the if
-  //condition as well
-  /*if (Ntbl * Ntspd == 1)
-    {
-      Cline = rows*(Cbitrow+TagCbitmetal)+2*draincap(Wtbitpreequ,PCH,1);
-       Ccolmux = gatecap(WtsenseN+WtsenseP,10.0 / FUDGEFACTOR);
-       Rlineb = TagRbitmetal*rows/2.0;
-       r1 = Rlineb;
-    }
-  else
-    {
-      Cline = rows*(Cbitrow+TagCbitmetal) + 2*draincap(Wtbitpreequ,PCH,1) +
-                 draincap(Wtiso,PCH,1);
-       Ccolmux = Ntspd*Ntbl*(draincap(Wtiso,PCH,1))+gatecap(WtsenseN+WtsenseP,10.0 /FUDGEFACTOR);
-       Rlineb = TagRbitmetal*rows/2.0;
- 	   r1 = Rlineb + transreson(Wtiso,PCH,1);
-    }*/
-
-   if(Ntspd/Ntwl < 1){ //Ntspd/Ntwl = Tag subarray columns / Tag array output width =
-		//= (A * tagbits * Ntspd / Ntwl) / A * tagbits = Degree of column muxing in a tag subarray.
-		//When it's less than 1, it means that more than one tag subarray is required to produce the 
-		//tag array output width.
-	    Cline = rows*(Cbitrow+TagCbitmetal)+2*draincap(Wtbitpreequ,PCH,1);
-        Ccolmux = gatecap(WtsenseN+WtsenseP,10.0 / FUDGEFACTOR);
-        Rlineb = TagRbitmetal*rows/2.0;
-        r1 = Rlineb;
-	}
-	else{//Tag array output width comes from one tag subarray
-			Cline = rows*(Cbitrow+TagCbitmetal) + 2*draincap(Wtbitpreequ,PCH,1) + draincap(Wtiso,PCH,1);
-			Ccolmux = Ntspd/Ntwl*(draincap(Wtiso,PCH,1))+gatecap(WtsenseN+WtsenseP,10.0 / FUDGEFACTOR);
-			Rlineb = TagRbitmetal*rows/2.0;
- 			r1 = Rlineb + transreson(Wtiso,PCH,1);
-	}
-
-  r2 = transreson (Wmemcella, NCH, 1) +
-    transreson (Wmemcella * Wmemcellbscale, NCH, 1);
-
-  c1 = Ccolmux;
-  c2 = Cline;
-  //v4.1: The tag energy calculation did not make use of the computed Nact below. Fixing that.	
-
-
-  //dynRdEnergy += c1 * VddPow * VddPow;
-
-  // Number of active Ntwl blocks
-  if (Ntwl/Ntspd < 1) {
-	  Nact = 1; }
-  else {
-	  Nact = Ntwl/Ntspd; }
-
-  //dynRdEnergy += c2 * VddPow * VbitprePow * cols;
-
-  dynRdEnergy += c1 * VddPow * VddPow * Nact;
-
-  dynRdEnergy += c2 * VddPow * VbitprePow * cols * Nact;
-
-  if (cols > tagbits)
+  for (double Nspd = Nspd_min; Nspd <= MAXDATASPD; Nspd *= 2)
   {
-		dynWrtEnergy += c2*VddPow*VddPow*tagbits;
-		dynWrtEnergy += c2*VddPow*VbitprePow*(cols-tagbits);
-  }
-  else {
-	dynWrtEnergy += c2*VddPow*VddPow*tagbits;
-  }
-
-  //fprintf(stderr, "Pow %f %f\n", c1*VddPow*VddPow*1e9, c2*VddPow*VbitprePow*cols*1e9);
-
-  tstep =
-    (r2 * c2 + (r1 + r2) * c1) * log ((Vbitpre) / (Vbitpre - Vbitsense));
-
-  /* take into account input rise time */
-
-  m = Vdd / inrisetime;
-  if (tstep <= (0.5 * (Vdd - Vt) / m))
-    //v4.1: Using the CACTI journal paper version equation under this condition
+    for (uint32_t iter = tid; iter < niter; iter += nthreads)
     {
-      /*a = m;
-      b = 2 * ((Vdd * 0.5) - Vt);
-      c = -2 * tstep * (Vdd - Vt) + 1 / m * ((Vdd * 0.5) - Vt) *
-	((Vdd * 0.5) - Vt);
-      Tbit = (-b + sqrt (b * b - 4 * a * c)) / (2 * a);*/
-
-	  Tbit = sqrt(2*tstep*(Vdd-Vt)/m);
+      // reconstruct Ndwl, Ndbl, Ndcm
+      unsigned int Ndwl = 1 << (iter / (Ndbl_niter * Ndcm_niter));
+      unsigned int Ndbl = 1 << ((iter / (Ndcm_niter))%Ndbl_niter);
+      unsigned int Ndcm = 1 << (iter % Ndcm_niter); 
+      for(unsigned int Ndsam_lev_1 = 1; Ndsam_lev_1 <= MAX_COL_MUX; Ndsam_lev_1 *= 2)
+      {
+        for(unsigned int Ndsam_lev_2 = 1; Ndsam_lev_2 <= MAX_COL_MUX; Ndsam_lev_2 *= 2)
+        {
+          if (is_tag == true)
+          {
+            is_valid_partition = calculate_time(is_tag, pure_ram, Nspd, Ndwl, 
+                Ndbl, Ndcm, Ndsam_lev_1, Ndsam_lev_2,
+                tag_arr.back(), 0, NULL, NULL,
+                *arr_edge_to_bank_edge_htree_sizing,
+                *bank_htree_sizing,
+                is_main_mem);
+          }
+          // If it's a fully-associative cache, the data array partition parameters are identical to that of
+          // the tag array, so compute data array partition properties also here.
+          if (is_tag == false || g_ip.fully_assoc)
+          {
+            is_valid_partition = calculate_time(is_tag/*false*/, pure_ram, Nspd, Ndwl, 
+                Ndbl, Ndcm, Ndsam_lev_1, Ndsam_lev_2,
+                data_arr.back(), 0, NULL, NULL,
+                *arr_edge_to_bank_edge_htree_sizing,
+                *bank_htree_sizing,
+                is_main_mem);
+          }
+          
+          if(is_valid_partition)
+          {
+            if (is_tag == true)
+            {
+              tag_arr.push_back(new mem_array);
+            }
+            if (is_tag == false || g_ip.fully_assoc)
+            {
+              data_arr.push_back(new mem_array);
+            }
+          }
+        }
+      }
     }
+  }
+  data_arr.pop_back();
+  tag_arr.pop_back();
+
+  pthread_exit(NULL);
+}
+
+
+// returns <delay, risetime>
+pair<double, double> get_max_delay_before_decoder(
+    const PredecoderBlockDriver & predec_blk_drv1,
+    const PredecoderBlock       & predec_blk1,
+    pair<double, double>          input_pair1,
+    const PredecoderBlockDriver & predec_blk_drv2,
+    const PredecoderBlock       & predec_blk2,
+    pair<double, double>          input_pair2)
+{
+  pair<double, double> ret_val;
+  double delay;
+
+  //outrisetime_nand2_decode_path_1 = input_pair1.first;
+  //outrisetime_nand3_decode_path_1 = input_pair1.second;
+  //outrisetime_nand2_decode_path_2 = input_pair2.first;
+  //outrisetime_nand3_decode_path_2 = input_pair2.second;
+
+  delay = predec_blk_drv1.delay_nand2_path + predec_blk1.delay_nand2_path;
+  ret_val.first  = delay;
+  ret_val.second = input_pair1.first;
+  delay = predec_blk_drv1.delay_nand3_path + predec_blk1.delay_nand3_path;
+  if (ret_val.first < delay)
+  {
+    ret_val.first  = delay;
+    ret_val.second = input_pair1.second;
+  }
+  delay = predec_blk_drv2.delay_nand2_path + predec_blk2.delay_nand2_path;
+  if (ret_val.first < delay)
+  {
+    ret_val.first  = delay;
+    ret_val.second = input_pair2.first;
+  }
+  delay = predec_blk_drv2.delay_nand3_path + predec_blk2.delay_nand3_path;
+  if (ret_val.first < delay)
+  {
+    ret_val.first  = delay;
+    ret_val.second = input_pair2.second;
+  }
+
+  return ret_val;
+}
+
+
+static void delay_comparator(
+    int tagbits,
+    int A,
+    double inputtime,
+    double *outputtime,
+    double *delay,
+    powerDef *power,
+    bool is_dram,
+    double cell_h)
+{
+  double Req, Ceq, tf, st1del, st2del, st3del, nextinputtime, m;
+  double c1, c2, r1, r2, tstep, a, b, c, lkgCurrent;
+  double Tcomparatorni;
+
+  *delay = 0;
+  power->readOp.dynamic  = 0;
+  power->readOp.leakage  = 0;
+  power->writeOp.dynamic = 0;
+  power->writeOp.leakage = 0;
+
+  tagbits = tagbits / 4;//Assuming there are 4 quarter comparators. input tagbits is already
+  //a multiple of 4.
+
+  /* First Inverter */
+  Ceq = gate_C(g_tp.w_comp_inv_n2+g_tp.w_comp_inv_p2, 0, is_dram) +
+        drain_C_(g_tp.w_comp_inv_p1, PCH, 1, 1, g_tp.cell_h_def, is_dram) +
+        drain_C_(g_tp.w_comp_inv_n1, NCH, 1, 1, g_tp.cell_h_def, is_dram);
+  Req = tr_R_on(g_tp.w_comp_inv_p1, PCH, 1, is_dram);
+  tf = Req*Ceq;
+  st1del = horowitz(inputtime,tf,VTHCOMPINV,VTHCOMPINV,FALL);
+  nextinputtime = st1del/VTHCOMPINV;
+  power->readOp.dynamic += 0.5 * Ceq * g_tp.peri_global.Vdd * g_tp.peri_global.Vdd * 4 * A; 
+  //For each degree of associativity 
+  //there are 4 such quarter comparators
+  lkgCurrent = 0.5 * cmos_Ileak(g_tp.w_comp_inv_n1, g_tp.w_comp_inv_p1, is_dram) * 4 * A;
+
+  /* Second Inverter */
+  Ceq = gate_C(g_tp.w_comp_inv_n3+g_tp.w_comp_inv_p3, 0, is_dram) +
+        drain_C_(g_tp.w_comp_inv_p2, PCH, 1, 1, g_tp.cell_h_def, is_dram) +
+        drain_C_(g_tp.w_comp_inv_n2, NCH, 1, 1, g_tp.cell_h_def, is_dram);
+  Req = tr_R_on(g_tp.w_comp_inv_n2, NCH, 1, is_dram);
+  tf = Req*Ceq;
+  st2del = horowitz(nextinputtime,tf,VTHCOMPINV,VTHCOMPINV,RISE);
+  nextinputtime = st2del/(1.0-VTHCOMPINV);
+  power->readOp.dynamic += 0.5 * Ceq * g_tp.peri_global.Vdd * g_tp.peri_global.Vdd * 4 * A;
+  lkgCurrent += 0.5 * cmos_Ileak(g_tp.w_comp_inv_n2, g_tp.w_comp_inv_p2, is_dram) * 4 * A;
+
+  /* Third Inverter */
+  Ceq = gate_C(g_tp.w_eval_inv_n+g_tp.w_eval_inv_p, 0, is_dram) +
+        drain_C_(g_tp.w_comp_inv_p3, PCH, 1, 1, g_tp.cell_h_def, is_dram) +
+        drain_C_(g_tp.w_comp_inv_n3, NCH, 1, 1, g_tp.cell_h_def, is_dram);
+  Req = tr_R_on(g_tp.w_comp_inv_p3, PCH, 1, is_dram);
+  tf = Req*Ceq;
+  st3del = horowitz(nextinputtime,tf,VTHCOMPINV,VTHEVALINV,FALL);
+  nextinputtime = st3del/(VTHEVALINV);
+  power->readOp.dynamic += 0.5 * Ceq * g_tp.peri_global.Vdd * g_tp.peri_global.Vdd * 4 * A;
+  lkgCurrent += 0.5 * cmos_Ileak(g_tp.w_comp_inv_n3, g_tp.w_comp_inv_p3, is_dram) * 4 * A;
+
+  /* Final Inverter (virtual ground driver) discharging compare part */
+  r1 = tr_R_on(g_tp.w_comp_n,NCH,2, is_dram);
+  r2 = tr_R_on(g_tp.w_eval_inv_n,NCH,1, is_dram); /* was switch */
+  c2 = (tagbits)*(drain_C_(g_tp.w_comp_n,NCH,1, 1, g_tp.cell_h_def, is_dram) +
+                  drain_C_(g_tp.w_comp_n,NCH,2, 1, g_tp.cell_h_def, is_dram)) +
+        drain_C_(g_tp.w_eval_inv_p,PCH,1, 1, g_tp.cell_h_def, is_dram) +
+        drain_C_(g_tp.w_eval_inv_n,NCH,1, 1, g_tp.cell_h_def, is_dram);
+  c1 = (tagbits)*(drain_C_(g_tp.w_comp_n,NCH,1, 1, g_tp.cell_h_def, is_dram) +
+                  drain_C_(g_tp.w_comp_n,NCH,2, 1, g_tp.cell_h_def, is_dram)) +
+       drain_C_(g_tp.w_comp_p,PCH,1, 1, g_tp.cell_h_def, is_dram) +
+       gate_C(WmuxdrvNANDn+WmuxdrvNANDp,0, is_dram);
+  power->readOp.dynamic += 0.5 * c2 * g_tp.peri_global.Vdd * g_tp.peri_global.Vdd * 4 * A;
+  power->readOp.dynamic += c1 * g_tp.peri_global.Vdd * g_tp.peri_global.Vdd *  (A - 1);
+  lkgCurrent += 0.5 * cmos_Ileak(g_tp.w_eval_inv_n,g_tp.w_eval_inv_p, is_dram) * 4 * A;
+  lkgCurrent += 0.2 * 0.5 * cmos_Ileak(g_tp.w_comp_n, g_tp.w_comp_p, is_dram) * 4 * A;//stack factor of 0.2
+
+  /* time to go to threshold of mux driver */
+  tstep = (r2*c2+(r1+r2)*c1)*log(1.0/VTHMUXNAND);
+  /* take into account non-zero input rise time */
+  m = g_tp.peri_global.Vdd/nextinputtime;
+
+  if((tstep) <= (0.5*(g_tp.peri_global.Vdd-g_tp.peri_global.Vth)/m)) 
+  {
+    a = m;
+    b = 2*((g_tp.peri_global.Vdd*VTHEVALINV)-g_tp.peri_global.Vth);
+    c = -2*(tstep)*(g_tp.peri_global.Vdd-g_tp.peri_global.Vth)+1/m*((g_tp.peri_global.Vdd*VTHEVALINV)-g_tp.peri_global.Vth)*((g_tp.peri_global.Vdd*VTHEVALINV)-g_tp.peri_global.Vth);
+    Tcomparatorni = (-b+sqrt(b*b-4*a*c))/(2*a);
+  }
   else
-    {
-      Tbit = tstep + (Vdd + Vt) / (2 * m) - (Vdd * 0.5) / m;
-    }
+  {
+    Tcomparatorni = (tstep) + (g_tp.peri_global.Vdd+g_tp.peri_global.Vth)/(2*m) - (g_tp.peri_global.Vdd*VTHEVALINV)/m;
+  }
+  *outputtime = Tcomparatorni/(1.0-VTHMUXNAND);
+  *delay = Tcomparatorni+st1del+st2del+st3del;
+  power->readOp.leakage = lkgCurrent * g_tp.peri_global.Vdd;
+}
 
-  *outrisetime = Tbit / (log ((Vbitpre - Vbitsense) / Vdd));
+
+
+double objective_function(
+    int flag_opt_for_dynamic_energy,
+    int flag_opt_for_dynamic_power,
+    int flag_opt_for_leakage_power,
+    int flag_opt_for_cycle_time,
+    double dynamic_energy_weight,
+    double dynamic_power_weight, 
+    double leakage_power_weight,
+    double cycle_time_weight,
+    double dyn_energy_wrt_min_dynamic_energy, 
+    double dyn_power_wrt_min_dyn_power,
+    double leak_power_wrt_min_leak_power, 
+    double cycle_time_wrt_min_cycle_time)
+{
+    return dyn_energy_wrt_min_dynamic_energy*flag_opt_for_dynamic_energy*dynamic_energy_weight +
+           dyn_power_wrt_min_dyn_power*flag_opt_for_dynamic_power*dynamic_power_weight + 
+           leak_power_wrt_min_leak_power*flag_opt_for_leakage_power*leakage_power_weight + 
+           cycle_time_wrt_min_cycle_time*flag_opt_for_cycle_time*cycle_time_weight;
+}
+
+
+
+double bitline_delay(
+    int num_r_subarray,
+    int num_c_subarray,
+    int num_subarrays,
+    double inrisetime,
+    double *outrisetime,
+    powerDef *power, 
+    double *per_bitline_read_energy,
+    int deg_bl_muxing,
+    int deg_senseamp_muxing,
+    int num_act_mats_hor_dir, 
+    double *writeback_delay,
+    int RWP,
+    int ERP,
+    int EWP,
+    const Area & cell,
+    bool  is_dram,
+    double Cbitmetal,
+    double Rbitmetal,
+    double & Vbitsense,
+    uint32_t ram_cell_tech_type)
+{
+  double Tbit, tau, v_bitline_precharge, v_th_mem_cell, v_wordline;
+  double m, tstep;
+  double dynRdEnergy = 0.0, dynWriteEnergy = 0.0;
+  double Icell, Iport;
+  double Cbitrow_drain_capacitance, R_cell_pull_down, R_cell_acc, Cbitline, 
+         Rbitline, C_drain_bit_mux, R_bit_mux, C_drain_sense_amp_iso, R_sense_amp_iso, 
+         C_sense_amp_latch, C_drain_sense_amp_mux, r_dev;
+  double leakage_power_cc_inverters_sram_cell, 
+         leakage_power_access_transistors_read_write_or_write_only_port_sram_cell,
+         leakage_power_read_only_port_sram_cell, fraction;
+  
+  *writeback_delay  = 0;
+  leakage_power_cc_inverters_sram_cell = 0;
+  leakage_power_access_transistors_read_write_or_write_only_port_sram_cell = 0;
+  leakage_power_read_only_port_sram_cell = 0;
+  
+  if (is_dram)
+  {
+    v_bitline_precharge = g_tp.dram.Vbitpre;
+    v_th_mem_cell = g_tp.dram_acc.Vth;
+    v_wordline = g_tp.vpp;
+    Cbitrow_drain_capacitance = drain_C_(g_tp.dram.cell_a_w, NCH, 1, 0, cell.w,  true, true) / 2.0;  /*due to shared contact*/ 
+    //The access transistor is not folded. So we just need to specify a theshold value for the
+    //folding width that is equal to or greater than Wmemcella. 
+    R_cell_acc = tr_R_on(g_tp.dram.cell_a_w, NCH, 1, true, true);
+    if (ram_cell_tech_type == 4)
+    {
+      Cbitline = num_r_subarray * Cbitmetal;
+    }
+    else
+    {
+      Cbitline = num_r_subarray / 2 * Cbitrow_drain_capacitance + num_r_subarray * Cbitmetal;
+    }
+    Rbitline = 0;
+    Rbitline = num_r_subarray * Rbitmetal;
+    r_dev = g_tp.dram_cell_Vdd / g_tp.dram_cell_I_on + Rbitline / 2;
+  }
+  else
+  { //SRAM
+    v_bitline_precharge = g_tp.sram.Vbitpre;
+    v_th_mem_cell = g_tp.sram_cell.Vth;
+    v_wordline = g_tp.sram_cell.Vdd;
+    Cbitrow_drain_capacitance = drain_C_(g_tp.sram.cell_a_w, NCH, 1, 0, cell.w, false, true) / 2.0;  /* due to shared contact */
+    R_cell_pull_down = tr_R_on(g_tp.sram.cell_nmos_w, NCH, 1, false, true);
+    R_cell_acc = tr_R_on(g_tp.sram.cell_a_w, NCH, 1, false, true);
+    Cbitline = num_r_subarray * (Cbitrow_drain_capacitance + Cbitmetal);
+    //Leakage current of an SRAM cell
+    Iport = cmos_Ileak(g_tp.sram.cell_a_w, 0,  false, true); 
+    Icell = cmos_Ileak(g_tp.sram.cell_nmos_w, g_tp.sram.cell_pmos_w, false, true);
+    leakage_power_cc_inverters_sram_cell = Icell * g_tp.sram_cell.Vdd;
+    leakage_power_access_transistors_read_write_or_write_only_port_sram_cell = Iport * g_tp.sram_cell.Vdd;
+    leakage_power_read_only_port_sram_cell = 
+        leakage_power_access_transistors_read_write_or_write_only_port_sram_cell * NAND2_LEAK_STACK_FACTOR;
+  }
+
+  
+  Rbitline = num_r_subarray * Rbitmetal;
+  C_drain_bit_mux = drain_C_(g_tp.w_nmos_b_mux, NCH, 1, 0, cell.w / (2 *(RWP + ERP + RWP)), is_dram);
+  R_bit_mux = tr_R_on(g_tp.w_nmos_b_mux, NCH, 1, is_dram);
+  C_drain_sense_amp_iso = drain_C_(g_tp.w_iso, PCH, 1, 0, cell.w * deg_bl_muxing / (RWP + ERP), is_dram);
+  R_sense_amp_iso = tr_R_on(g_tp.w_iso, PCH, 1, is_dram);
+  C_sense_amp_latch = gate_C(g_tp.w_sense_p + g_tp.w_sense_n, 0, is_dram) +
+                      drain_C_(g_tp.w_sense_n, NCH, 1, 0, cell.w * deg_bl_muxing / (RWP + ERP), is_dram) + 
+                      drain_C_(g_tp.w_sense_p, PCH, 1, 0, cell.w * deg_bl_muxing / (RWP + ERP), is_dram);
+  C_drain_sense_amp_mux = drain_C_(g_tp.w_nmos_sa_mux, NCH, 1, 0, cell.w * deg_bl_muxing / (RWP + ERP), is_dram);
+  if (is_dram) 
+  {
+    fraction = Vbitsense / ((g_tp.dram_cell_Vdd/2) * g_tp.dram_cell_C /(g_tp.dram_cell_C + Cbitline));
+    //fraction = 1;
+    tstep = 2.3 * fraction * r_dev * (g_tp.dram_cell_C * (Cbitline + 2 * C_drain_sense_amp_iso + 
+      C_sense_amp_latch + C_drain_sense_amp_mux)) / (g_tp.dram_cell_C + (Cbitline + 2 * 
+      C_drain_sense_amp_iso + C_sense_amp_latch + C_drain_sense_amp_mux));
+    *writeback_delay = tstep;
+    dynRdEnergy +=  (Cbitline + 2 * C_drain_sense_amp_iso + C_sense_amp_latch + C_drain_sense_amp_mux) * 
+                    (g_tp.dram_cell_Vdd / 2) * g_tp.dram_cell_Vdd * num_c_subarray * 4 * num_act_mats_hor_dir;
+    dynWriteEnergy += (Cbitline + 2 * C_drain_sense_amp_iso + C_sense_amp_latch ) * 
+                    (g_tp.dram_cell_Vdd / 2) * g_tp.dram_cell_Vdd * num_c_subarray * 4 * num_act_mats_hor_dir;
+    *per_bitline_read_energy = (Cbitline + 2 * C_drain_sense_amp_iso + C_sense_amp_latch + C_drain_sense_amp_mux) *
+                               (g_tp.dram_cell_Vdd / 2) * g_tp.dram_cell_Vdd;
+  }
+  else
+  {
+    Vbitsense = (0.05 * g_tp.sram_cell.Vdd > VBITSENSEMIN) ? 0.05 * g_tp.sram_cell.Vdd : VBITSENSEMIN;
+    if (deg_bl_muxing > 1)
+    {
+      tau = (R_cell_pull_down + R_cell_acc) * (Cbitline + 2 * C_drain_bit_mux + 
+        2 * C_drain_sense_amp_iso + C_sense_amp_latch + C_drain_sense_amp_mux) + Rbitline * 
+        (Cbitline / 2 + 2 * C_drain_bit_mux +   2 * C_drain_sense_amp_iso + C_sense_amp_latch +
+        C_drain_sense_amp_mux)+ R_bit_mux * (C_drain_bit_mux + 2 * C_drain_sense_amp_iso +
+        C_sense_amp_latch + C_drain_sense_amp_mux) + R_sense_amp_iso * (C_drain_sense_amp_iso + C_sense_amp_latch + 
+        C_drain_sense_amp_mux);
+      dynRdEnergy += (Cbitline + 2 * C_drain_bit_mux) * 2 * Vbitsense * g_tp.sram_cell.Vdd * 
+        num_c_subarray * 4 * num_act_mats_hor_dir;
+      dynRdEnergy += (2 * C_drain_sense_amp_iso + C_sense_amp_latch +  C_drain_sense_amp_mux) * 
+        2 * Vbitsense * g_tp.sram_cell.Vdd * (num_c_subarray * 4 / deg_bl_muxing) *
+        num_act_mats_hor_dir;
+      dynWriteEnergy += (((num_c_subarray * 4 / deg_bl_muxing) / deg_senseamp_muxing) *
+                         num_act_mats_hor_dir * Cbitline + 2 * C_drain_bit_mux) * g_tp.sram_cell.Vdd * g_tp.sram_cell.Vdd;
+    }
+    else
+    { //deg_bl_muxing == 1
+      tau = (R_cell_pull_down + R_cell_acc) * (Cbitline + C_drain_sense_amp_iso +
+        C_sense_amp_latch + C_drain_sense_amp_mux) + Rbitline * Cbitline / 2 + 
+        R_sense_amp_iso * (C_drain_sense_amp_iso + C_sense_amp_latch +   C_drain_sense_amp_mux);
+      dynRdEnergy += (Cbitline + 2 * C_drain_sense_amp_iso + C_sense_amp_latch + 
+        C_drain_sense_amp_mux) * 2 * Vbitsense * g_tp.sram_cell.Vdd * num_c_subarray * 4 * 
+        num_act_mats_hor_dir;
+      dynWriteEnergy += (((num_c_subarray * 4 / deg_bl_muxing) / deg_senseamp_muxing) *
+                         num_act_mats_hor_dir * Cbitline) * g_tp.sram_cell.Vdd * g_tp.sram_cell.Vdd;
+
+    }
+    tstep = tau * log(v_bitline_precharge / (v_bitline_precharge - Vbitsense));
+    //power->readOp.leakage = (Icell + Iport) * g_tp.sram_cell.Vdd;
+    power->readOp.leakage = leakage_power_cc_inverters_sram_cell + 
+      leakage_power_access_transistors_read_write_or_write_only_port_sram_cell + 
+      leakage_power_access_transistors_read_write_or_write_only_port_sram_cell * 
+      (RWP + EWP -1) + leakage_power_read_only_port_sram_cell * ERP;
+  }
+  
+  /* take input rise time into account */
+  m = v_wordline / inrisetime;
+  if (tstep <= (0.5 * (v_wordline - v_th_mem_cell) / m))
+  {
+    Tbit = sqrt(2 * tstep * (v_wordline - v_th_mem_cell)/ m);
+  }
+  else
+  {
+    Tbit = tstep + (v_wordline - v_th_mem_cell) / (2 * m);
+  }
 
   power->readOp.dynamic = dynRdEnergy;
-  power->readOp.leakage = (lkgCell + lkgPort) * VddPow;
-
-  power->writeOp.dynamic = dynWrtEnergy;
-  power->writeOp.leakage = (lkgCell + lkgPort) * VddPow;
-
-  return (Tbit);
+  power->writeOp.dynamic = dynWriteEnergy;
+  *outrisetime = 0;
+  return(Tbit);
 }
 
 
-
-/*----------------------------------------------------------------------*/
-
-/* It is assumed the sense amps have a constant delay
-   (see section 6.5) */
-
-double sense_amp_delay (int C,int B,int A,int Ndwl,int Ndbl,double Nspd, double inrisetime,double *outrisetime, powerDef *power)
+void delay_sense_amplifier(
+    int num_c_subarray,
+    int RWP,
+    int ERP,
+    double inrisetime,
+    double *outrisetime,
+    powerDef *power, 
+    int deg_bl_muxing,
+    int number_mats,
+    int num_act_mats_hor_dir,
+    double *delay,
+    double *leak_power_sense_amps_closed_page_state, 
+    double *leak_power_sense_amps_open_page_state,
+    const Area & cell,
+    bool  is_dram,
+    bool  is_tag,
+    double Vbitsense)
 {
-  double Cload;
-	int cols,Nact;
-	double IsenseEn, IsenseN, IsenseP, IoBufP, IoBufN, Iiso, Ipch, IsPch;
-	double lkgIdlePh, lkgReadPh, lkgWritePh;
-	double lkgRead, lkgWrite, lkgIdle;
-
-	//v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-    //the final int value is the correct one 
- 	//cols = CHUNKSIZE*B*A*Nspd/Ndwl;
-	cols = (int) (CHUNKSIZE*B*A*Nspd/Ndwl + EPSILON);
-
-	// Number of active blocks in Ntwl modules during a read op
-	if (Ndwl/Nspd < 1) {
-		Nact = 1; }
-	else {
-		//v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-		//the final int value is the correct one 
-		//Nact = Ndwl/Nspd; 
-	    Nact = (int) (Ndwl/Nspd + EPSILON);}
-
-	if (dualVt == 1)
-	{
-		IsenseEn = simplified_nmos_leakage(WsenseEn*inv_Leff,Vt_cell_nmos_high);
-		IsenseN  = simplified_nmos_leakage(WsenseN*inv_Leff,Vt_cell_nmos_high);
-		IsenseP  = simplified_pmos_leakage(WsenseP*inv_Leff,Vt_cell_pmos_high);
-		IoBufN   = simplified_nmos_leakage(WoBufN*inv_Leff,Vt_cell_nmos_high);
-		IoBufP   = simplified_pmos_leakage(WoBufP*inv_Leff,Vt_cell_pmos_high);
-		Iiso     = simplified_nmos_leakage(Wiso*inv_Leff,Vt_cell_nmos_high);
-		Ipch     = simplified_pmos_leakage(Wpch*inv_Leff,Vt_cell_pmos_high);
-		IsPch    = simplified_pmos_leakage(WsPch*inv_Leff,Vt_cell_pmos_high);
-	}
-	else {
-		IsenseEn = simplified_nmos_leakage(WsenseEn*inv_Leff,Vthn);
-		IsenseN  = simplified_nmos_leakage(WsenseN*inv_Leff,Vthn);
-		IsenseP  = simplified_pmos_leakage(WsenseP*inv_Leff,Vthp);
-		IoBufN   = simplified_nmos_leakage(WoBufN*inv_Leff,Vthn);
-		IoBufP   = simplified_pmos_leakage(WoBufP*inv_Leff,Vthp);
-		Iiso     = simplified_nmos_leakage(Wiso*inv_Leff,Vthn);
-		Ipch     = simplified_pmos_leakage(Wpch*inv_Leff,Vthp);
-		IsPch    = simplified_pmos_leakage(WsPch*inv_Leff,Vthp);
-	}
-
-	lkgIdlePh = IsenseEn + 2*IoBufP;
-	lkgWritePh = 2*Ipch + Iiso + IsenseEn + 2*IoBufP;
-	lkgReadPh = 2*IsPch + Iiso + IsenseN + IsenseP + IoBufN + IoBufP;
-
-	// read cols in the inactive blocks would be in idle phase
-	lkgRead = lkgReadPh * cols * Nact + lkgIdlePh * cols * (Nact - 1);
-	// only the cols in which data is written into are in write ph
-	// all the remaining cols are considered to be in idle phase
-	lkgWrite = lkgWritePh * BITOUT + lkgIdlePh * (cols*Ndwl - BITOUT);
-	lkgIdle = lkgIdlePh * cols * Ndwl;
-
-	// sense amplifier has to drive logic in "data out driver" and sense precharge load.
-	// load seen by sense amp
-
-	Cload = gatecap(WsenseP+WsenseN,5.0 / FUDGEFACTOR) + draincap(WsPch,PCH,1) +
-			gatecap(Woutdrvnandn+Woutdrvnandp,1.0 / FUDGEFACTOR) + gatecap(Woutdrvnorn+Woutdrvnorp,1.0 / FUDGEFACTOR);
-
-   	*outrisetime = tfalldata;
-   	power->readOp.dynamic = 0.5* Cload * VddPow * VddPow *BITOUT * A * muxover;
-   	power->readOp.leakage = ((lkgRead + lkgIdle)/2 ) * VddPow;
-
-   	power->writeOp.dynamic = 0.0;
-	power->writeOp.leakage = ((lkgWrite + lkgIdle)/2 ) * VddPow;
-
-   	return(tsensedata+2.5e-10/FUDGEFACTOR); //v4.1: Computing sense amp delay component for input tech node itself instead
-	//of dividing by FUDGEFACTOR at the end.
-}
-
-/*--------------------------------------------------------------*/
-
-double sense_amp_tag_delay (int C,int B,int A,int Ntwl,int Ntbl,int Ntspd,double NSubbanks,double inrisetime, double *outrisetime, powerDef *power)
-{ 
-    double Cload;
-	int cols, tagbits, Nact;
-	double IsenseEn, IsenseN, IsenseP, IoBufP, IoBufN, Iiso, Ipch, IsPch;
-	double lkgIdlePh, lkgReadPh, lkgWritePh;
-	double lkgRead, lkgWrite, lkgIdle;
-
-	if(!force_tag) {
-		//v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-		//the final int value is the correct one 
-		//tagbits = ADDRESS_BITS + EXTRA_TAG_BITS -(int)logtwo((double)C)+(int)logtwo((double)A)-(int)(logtwo(NSubbanks));
-		tagbits = (int) (ADDRESS_BITS + EXTRA_TAG_BITS -(int)logtwo((double)C)+(int)logtwo((double)A)-(int)(logtwo(NSubbanks)) + EPSILON);
-	}
-	else {
-		tagbits = force_tag_size;
-	}
-	cols = tagbits*A*Ntspd/Ntwl;
-
-	// Number of active blocks in Ntwl modules during a read op
-	if (Ntwl/Ntspd < 1) {
-		Nact = 1; }
-	else {
-		Nact = Ntwl/Ntspd; }
-
-	if (dualVt == 1)
-	{
-		IsenseEn = simplified_nmos_leakage(WtsenseEn*inv_Leff,Vt_cell_nmos_high);
-		IsenseN = simplified_nmos_leakage(WtsenseN*inv_Leff,Vt_cell_nmos_high);
-		IsenseP = simplified_pmos_leakage(WtsenseP*inv_Leff,Vt_cell_pmos_high);
-		IoBufN = simplified_nmos_leakage(WtoBufN*inv_Leff,Vt_cell_nmos_high);
-		IoBufP = simplified_pmos_leakage(WtoBufP*inv_Leff,Vt_cell_pmos_high);
-		Iiso = simplified_nmos_leakage(Wtiso*inv_Leff,Vt_cell_nmos_high);
-		Ipch = simplified_pmos_leakage(Wtpch*inv_Leff,Vt_cell_pmos_high);
-		IsPch = simplified_pmos_leakage(WtsPch*inv_Leff,Vt_cell_pmos_high);
-	}
-	else
-	{
-		IsenseEn = simplified_nmos_leakage(WtsenseEn*inv_Leff,Vthn);
-		IsenseN = simplified_nmos_leakage(WtsenseN*inv_Leff,Vthn);
-		IsenseP = simplified_pmos_leakage(WtsenseP*inv_Leff,Vthp);
-		IoBufN = simplified_nmos_leakage(WtoBufN*inv_Leff,Vthn);
-		IoBufP = simplified_pmos_leakage(WtoBufP*inv_Leff,Vthp);
-		Iiso = simplified_nmos_leakage(Wtiso*inv_Leff,Vthn);
-		Ipch = simplified_pmos_leakage(Wtpch*inv_Leff,Vthp);
-		IsPch = simplified_pmos_leakage(WtsPch*inv_Leff,Vthp);
-	}
-
-	lkgIdlePh = IsenseEn + 2*IoBufP;
-	lkgWritePh = 2*Ipch + Iiso + IsenseEn + 2*IoBufP;
-	lkgReadPh = 2*IsPch + Iiso + IsenseN + IsenseP + IoBufN + IoBufP;
-
-	// read cols in the inactive blocks would be in idle phase
-	lkgRead = lkgReadPh * cols * Nact + lkgIdlePh * cols * (Nact - 1);
-	// only the cols in which data is written into are in write ph
-	// all the remaining cols are considered to be in idle phase
-	lkgWrite = lkgWritePh * tagbits + lkgIdlePh * (cols*Ntwl - tagbits);
-	lkgIdle = lkgIdlePh * cols * Ntwl;
-
-	// sense amplifier has to drive logic in "data out driver" and sense precharge load.
-	// load seen by sense amp
-
-	Cload = gatecap(WtsenseP+WtsenseN,5.0 / FUDGEFACTOR) + draincap(WtsPch,PCH,1);
-				//gatecap(Woutdrvnandn+Woutdrvnandp,1.0) + gatecap(Woutdrvnorn+Woutdrvnorp,1.0);
-
-	*outrisetime = tfalltag;
-	power->readOp.dynamic = 0.5* Cload * VddPow * VddPow *tagbits * A;
-	power->readOp.leakage = ((lkgRead + lkgIdle)/2 ) * VddPow;
-
-	power->writeOp.dynamic = 0.0;
-	power->writeOp.leakage = ((lkgWrite + lkgIdle)/2 ) * VddPow;
-
-   	return(tsensetag+2.5e-10/FUDGEFACTOR); //v4.1: Computing sense amp delay component for input tech node itself instead
-	//of dividing by FUDGEFACTOR at the end.
-}
-
-/*----------------------------------------------------------------------*/
-
-/* Comparator Delay (see section 6.6) */
-
-
-double compare_time (int C,int A,int Ntbl,int Ntspd,double NSubbanks,double inputtime,double *outputtime,powerDef *power)
-{
-	double Req,Ceq,tf,st1del,st2del,st3del,nextinputtime,m;
-   	double c1,c2,r1,r2,tstep,a,b,c;
-   	double Tcomparatorni;
-   	int cols,tagbits;
-   	double lkgCurrent=0.0, dynPower=0.0;
-
-   	/* First Inverter */
-
-   	Ceq = gatecap(Wcompinvn2+Wcompinvp2,10.0 / FUDGEFACTOR) +
-   	      draincap(Wcompinvp1,PCH,1) + draincap(Wcompinvn1,NCH,1);
-   	Req = transreson(Wcompinvp1,PCH,1);
-   	tf = Req*Ceq;
-   	st1del = horowitz(inputtime,tf,VTHCOMPINV,VTHCOMPINV,FALL);
-   	nextinputtime = st1del/VTHCOMPINV;
-   	dynPower+=Ceq*VddPow*VddPow*2*A;
-
-	lkgCurrent = 0.5 * A * cmos_ileakage(Wcompinvn1,Wcompinvp1,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-   	/* Second Inverter */
-
-   	Ceq = gatecap(Wcompinvn3+Wcompinvp3,10.0 / FUDGEFACTOR) +
-   	      draincap(Wcompinvp2,PCH,1) + draincap(Wcompinvn2,NCH,1);
-   	Req = transreson(Wcompinvn2,NCH,1);
-   	tf = Req*Ceq;
-   	st2del = horowitz(nextinputtime,tf,VTHCOMPINV,VTHCOMPINV,RISE);
-   	nextinputtime = st2del/(1.0-VTHCOMPINV);
-   	dynPower+=Ceq*VddPow*VddPow*2*A;
-
-	lkgCurrent += 0.5 * A * cmos_ileakage(Wcompinvn2,Wcompinvp2,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-
-   	/* Third Inverter */
-
-   	Ceq = gatecap(Wevalinvn+Wevalinvp,10.0 / FUDGEFACTOR) +
-   	      draincap(Wcompinvp3,PCH,1) + draincap(Wcompinvn3,NCH,1);
-   	Req = transreson(Wcompinvp3,PCH,1);
-   	tf = Req*Ceq;
-   	st3del = horowitz(nextinputtime,tf,VTHCOMPINV,VTHEVALINV,FALL);
-   	nextinputtime = st3del/(VTHEVALINV);
-   	dynPower+=Ceq*VddPow*VddPow*2*A;
-
-	lkgCurrent += 0.5 * A * cmos_ileakage(Wcompinvn3,Wcompinvp3,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-
-   	/* Final Inverter (virtual ground driver) discharging compare part */
-
-	if(!force_tag) {
-		//v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-        //the final int value is the correct one 
-   		//tagbits = ADDRESS_BITS + EXTRA_TAG_BITS - (int)logtwo((double)C) + (int)logtwo((double)A)-(int)(logtwo(NSubbanks));
-		tagbits = (int) (ADDRESS_BITS + EXTRA_TAG_BITS - (int)logtwo((double)C) + (int)logtwo((double)A)-(int)(logtwo(NSubbanks)) + EPSILON);
-	}
-	else {
-		tagbits = force_tag_size;
-	}
-   	tagbits=tagbits/2;
-   	cols = tagbits*Ntbl*Ntspd;
-
-   	r1 = transreson(Wcompn,NCH,2);
-   	r2 = transreson(Wevalinvn,NCH,1); /* was switch */
-   	c2 = (tagbits)*(draincap(Wcompn,NCH,1)+draincap(Wcompn,NCH,2))+
-   	      draincap(Wevalinvp,PCH,1) + draincap(Wevalinvn,NCH,1);
-   	c1 = (tagbits)*(draincap(Wcompn,NCH,1)+draincap(Wcompn,NCH,2))
-   	     +draincap(Wcompp,PCH,1) + gatecap(WmuxdrvNANDn+WmuxdrvNANDp,20.0 / FUDGEFACTOR) +
-   	     cols*Cwordmetal;
-   	dynPower+=c2*VddPow*VddPow*2*A;
-   	dynPower+=c1*VddPow*VddPow*(A-1);
-
-	lkgCurrent += 0.5 * A * cmos_ileakage(Wevalinvn,Wevalinvp,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-		// double the tag_bits as the delay is being computed for only
-		// half the number. The leakage is still for the total tag bits
-
-		// the comparator compares cols number of bits. Since these transistors are
-		// stacked, a stacking factor of 0.2 is used
-    lkgCurrent += 2 * cols * 0.2 * 0.5 * A * cmos_ileakage(Wcompn,Wcompp,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-		// leakage due to the mux driver
-	lkgCurrent += 0.5 * A * cmos_ileakage(Wmuxdrv12n,Wmuxdrv12p,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);	
-
-   	/* time to go to threshold of mux driver */
-
-   	tstep = (r2*c2+(r1+r2)*c1)*log(1.0/VTHMUXNAND);
-
-   	/* take into account non-zero input rise time */
-
-   	m = Vdd/nextinputtime;
-
-   	if ((tstep) <= (0.5*(Vdd-Vt)/m)) {
-  		a = m;
-	    b = 2*((Vdd*VTHEVALINV)-Vt);
-        c = -2*(tstep)*(Vdd-Vt)+1/m*((Vdd*VTHEVALINV)-Vt)*((Vdd*VTHEVALINV)-Vt);
- 	    Tcomparatorni = (-b+sqrt(b*b-4*a*c))/(2*a);
-   	} else {
-		Tcomparatorni = (tstep) + (Vdd+Vt)/(2*m) - (Vdd*VTHEVALINV)/m;
-   	}
-   	*outputtime = Tcomparatorni/(1.0-VTHMUXNAND);
-
-	power->readOp.dynamic = dynPower;
-	power->readOp.leakage = lkgCurrent * VddPow;
-
-	power->writeOp.dynamic = 0.0;
-	power->writeOp.leakage = lkgCurrent * VddPow;
-
-   	return(Tcomparatorni+st1del+st2del+st3del);
-}
-
-
-
-
-/*----------------------------------------------------------------------*/
-
-/* Delay of the multiplexor Driver (see section 6.7) */
-
-
-double mux_driver_delay (int Ntbl,int Ntspd,double inputtime,
-		  double *outputtime,double wirelength)
-{
-  double Ceq, Req, tf, nextinputtime;
-  double Tst1, Tst2, Tst3;
-
-  /* first driver stage - Inverte "match" to produce "matchb" */
-  /* the critical path is the DESELECTED case, so consider what
-     happens when the address bit is true, but match goes low */
-
-  Ceq = gatecap (WmuxdrvNORn + WmuxdrvNORp, 15.0 / FUDGEFACTOR) * muxover +
-    draincap (Wmuxdrv12n, NCH, 1) + draincap (Wmuxdrv12p, PCH, 1);
-  Req = transreson (Wmuxdrv12p, PCH, 1);
-  tf = Ceq * Req;
-  Tst1 = horowitz (inputtime, tf, VTHMUXDRV1, VTHMUXDRV2, FALL);
-  nextinputtime = Tst1 / VTHMUXDRV2;
-
-  /* second driver stage - NOR "matchb" with address bits to produce sel */
-
-  Ceq =
-    gatecap (Wmuxdrv3n + Wmuxdrv3p, 15.0 / FUDGEFACTOR) + 2 * draincap (WmuxdrvNORn, NCH,
-							  1) +
-    draincap (WmuxdrvNORp, PCH, 2);
-  Req = transreson (WmuxdrvNORn, NCH, 1);
-  tf = Ceq * Req;
-  Tst2 = horowitz (nextinputtime, tf, VTHMUXDRV2, VTHMUXDRV3, RISE);
-  nextinputtime = Tst2 / (1 - VTHMUXDRV3);
-
-  /* third driver stage - invert "select" to produce "select bar" */
-
-
-  Ceq =
-    BITOUT * gatecap (Woutdrvseln + Woutdrvselp + Woutdrvnorn + Woutdrvnorp,20.0)
-	+ draincap (Wmuxdrv3p, PCH,1) + draincap (Wmuxdrv3n, NCH,1) +
-    GlobalCwordmetal * wirelength;
-  Req = (GlobalRwordmetal * wirelength) / 2.0 + transreson (Wmuxdrv3p, PCH, 1);
-  tf = Ceq * Req;
-  Tst3 = horowitz (nextinputtime, tf, VTHMUXDRV3, VTHOUTDRINV, FALL);
-  *outputtime = Tst3 / (VTHOUTDRINV);
-
-  return (Tst1 + Tst2 + Tst3);
-
-}
-void precalc_muxdrv_widths(int C,int B,int A,int Ndwl,int Ndbl,double Nspd,double * wirelength_v,double * wirelength_h)
-{
-	int l_muxdrv_v = 0, l_muxdrv_h = 0, cols_subarray, rows_subarray, nr_subarrays_left, horizontal_step, vertical_step, v_or_h;
-	//double wirelength, Ceq, Cload, Cline;
-	double Ceq, Cload, Cline;
-	int wire_v = 0, wire_h = 0;
-	double current_ndriveW,current_pdriveW, previous_ndriveW,previous_pdriveW;
-
-    //v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-    //the final int value is the correct one 
-    //cols_subarray = (CHUNKSIZE * B * A * Nspd / Ndwl);
-    //rows_subarray = (C /(B * A * Ndbl * Nspd));
-	cols_subarray = (int) (CHUNKSIZE * B * A * Nspd / Ndwl + EPSILON);
-    rows_subarray = (int) (C /(B * A * Ndbl * Nspd) + EPSILON);
-
-    if (Ndwl * Ndbl == 1) {
-        l_muxdrv_v = 0;
-        l_muxdrv_h = cols_subarray;
-
-		Cmuxdrvtreesegments[0] = GlobalCwordmetal*cols_subarray;
-		Rmuxdrvtreesegments[0] = 0.5*GlobalRwordmetal*cols_subarray;
-
-		Cline = BITOUT*gatecap(Woutdrvseln+Woutdrvselp+Woutdrvnorn+Woutdrvnorp,20.0 / FUDGEFACTOR) + 
-			    GlobalCwordmetal*cols_subarray;
-		Cload = Cline / gatecap(1.0,0.0);
-
-		current_ndriveW = Cload*SizingRatio/3;
-		current_pdriveW = 2*Cload*SizingRatio/3;
-
-		nr_muxdrvtreesegments = 0;
-
-    }
-    else if (Ndwl * Ndbl == 2
-        || Ndwl * Ndbl == 4) {
-        l_muxdrv_v = 0;
-        l_muxdrv_h = 2*cols_subarray;
-
-		Cmuxdrvtreesegments[0] = GlobalCwordmetal*cols_subarray;
-		Rmuxdrvtreesegments[0] = 0.5*GlobalRwordmetal*cols_subarray;
-
-		Cline = BITOUT*gatecap(Woutdrvseln+Woutdrvselp+Woutdrvnorn+Woutdrvnorp,20.0 / FUDGEFACTOR) + 
-			    GlobalCwordmetal*cols_subarray;
-		Cload = Cline / gatecap(1.0,0.0);
-
-		current_ndriveW = Cload*SizingRatio/3;
-		current_pdriveW = 2*Cload*SizingRatio/3;
-		
-		nr_muxdrvtreesegments = 0;
-    }
-    else if (Ndwl * Ndbl > 4) {
-		nr_subarrays_left = Ndwl* Ndbl;
-		nr_subarrays_left /= 2;
-		horizontal_step = cols_subarray;
-		vertical_step = rows_subarray;
-		l_muxdrv_h = horizontal_step;
-
-		Cmuxdrvtreesegments[0] = GlobalCwordmetal*horizontal_step;
-		Rmuxdrvtreesegments[0] = 0.5*GlobalRwordmetal*horizontal_step;
-
-		Cline = BITOUT*gatecap(Woutdrvseln+Woutdrvselp+Woutdrvnorn+Woutdrvnorp,20.0 / FUDGEFACTOR) + 
-			    GlobalCwordmetal*horizontal_step;
-		Cload = Cline / gatecap(1.0,0.0);
-
-		current_ndriveW = Cload*SizingRatio/3;
-		current_pdriveW = 2*Cload*SizingRatio/3;
-
-		WmuxdrvtreeN[0] = current_ndriveW;
-		nr_muxdrvtreesegments = 1;
-
-		horizontal_step *= 2;
-		v_or_h = 1; // next step is vertical
-
-		while(nr_subarrays_left > 1) {
-			previous_ndriveW = current_ndriveW;
-			previous_pdriveW = current_pdriveW;
-			nr_muxdrvtreesegments++;
-			if(v_or_h) {
-				l_muxdrv_v += vertical_step;
-				v_or_h = 0;
-				
-				Cmuxdrvtreesegments[nr_muxdrvtreesegments-1] = GlobalCbitmetal*vertical_step;
-				Rmuxdrvtreesegments[nr_muxdrvtreesegments-1] = 0.5*GlobalRbitmetal*vertical_step;
-				Cline = gatecap(previous_ndriveW+previous_pdriveW,0)+GlobalCbitmetal*vertical_step;
-
-				vertical_step *= 2;
-				nr_subarrays_left /= 2;
-			}
-			else {
-				l_muxdrv_h += horizontal_step;
-				v_or_h = 1;
-
-				Cmuxdrvtreesegments[nr_muxdrvtreesegments-1] = GlobalCwordmetal*horizontal_step;
-				Rmuxdrvtreesegments[nr_muxdrvtreesegments-1] = 0.5*GlobalRwordmetal*horizontal_step;
-				Cline = gatecap(previous_ndriveW+previous_pdriveW,0)+GlobalCwordmetal*horizontal_step;
-
-				horizontal_step *= 2;
-				nr_subarrays_left /= 2;
-			}
-
-			Cload = Cline / gatecap(1.0,0.0);
-
-			current_ndriveW = Cload*SizingRatio/3;
-			current_pdriveW = 2*Cload*SizingRatio/3;
-
-			WmuxdrvtreeN[nr_muxdrvtreesegments-1] = current_ndriveW;
-		}
-    }
-
-    wire_v = (l_muxdrv_v);
-    wire_h = (l_muxdrv_h);
-
-	
-
-	Ceq = BITOUT*gatecap(Woutdrvseln+Woutdrvselp+Woutdrvnorn+Woutdrvnorp,20.0 / FUDGEFACTOR);
-	/*dt: adding an extra layer of drivers, so  that we don't have these biiiig gates */
-	Ceq += GlobalCwordmetal*wire_h + GlobalCbitmetal*wire_v;
-   	Cload = Ceq / gatecap(1.0,0.0);
-   	Wmuxdrv3p = Cload * SizingRatio * 2/3;
-   	Wmuxdrv3n = Cload * SizingRatio /3;
-
-
-   	WmuxdrvNORn = (Wmuxdrv3n + Wmuxdrv3p) * SizingRatio /3;
-
-   	// 2 to account for series pmos in NOR
-   	WmuxdrvNORp = 2* (Wmuxdrv3n + Wmuxdrv3p) * SizingRatio * 2/3;
-
-   	WmuxdrvNANDn = 2*(WmuxdrvNORn+WmuxdrvNORp)*muxover*SizingRatio*1/3;
-   	WmuxdrvNANDp = (WmuxdrvNORn+WmuxdrvNORp)*muxover*SizingRatio*2/3;
-
-	*wirelength_h = wire_h;
-	*wirelength_v = wire_v;
-
-}
-/*dt: incorporated leakage and resizing from eCacti*/
-double mux_driver_delay_dualin (int C,int B,int A,int Ntbl,int Ntspd,double inputtime1,
-			 double *outputtime,double wirelength_v,double wirelength_h,powerDef *power)
-{
-	//double Ceq,Req,Rwire,tf,nextinputtime, Cload;
-	double Ceq,Req,Rwire,tf,nextinputtime;
-   	//double Tst1,Tst2,Tst2a,Tst3,Tst4;
-	double Tst1,Tst2,Tst3;
-   	double lkgCurrent=0.0, dynPower = 0.0;
-	//double Wwiredrv1n, Wwiredrv1p, Wmuxdrv4n, Wmuxdrv4p;
-	double overall_delay = 0;
-	int i = 0;
-	double inrisetime = 0, this_delay = 0;
-	
-   	/* first driver stage - Inverte "match" to produce "matchb" */
-   	/* the critical path is the DESELECTED case, so consider what
-   	   happens when the address bit is true, but match goes low */
-
-   	Ceq = gatecap(WmuxdrvNORn+WmuxdrvNORp,15.0 / FUDGEFACTOR)*muxover
-   	  +draincap(WmuxdrvNANDn,NCH,2) + 2*draincap(WmuxdrvNANDp,PCH,1);
-   	Req = transreson(WmuxdrvNANDp,PCH,1);
-   	tf = Ceq*Req;
-   	Tst1 = horowitz(inputtime1,tf,VTHMUXNAND,VTHMUXDRV2,FALL);
-   	nextinputtime = Tst1/VTHMUXDRV2;
-   	dynPower+=Ceq*VddPow*VddPow*(A-1);
-
-	lkgCurrent = 0.5 * 0.2 * muxover * cmos_ileakage(WmuxdrvNORn,WmuxdrvNORp,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-	lkgCurrent += 0.5 * 0.2 * muxover * cmos_ileakage(WmuxdrvNANDn,WmuxdrvNANDp,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-
-
-   	/* second driver stage - NOR "matchb" with address bits to produce sel */
-   	Ceq = gatecap(Wmuxdrv3n+Wmuxdrv3p,15.0 / FUDGEFACTOR) + 2*draincap(WmuxdrvNORn,NCH,1) +
-   	      draincap(WmuxdrvNORp,PCH,2);
-   	Req = transreson(WmuxdrvNORn,NCH,1);
-   	tf = Ceq*Req;
-   	Tst2 = horowitz(nextinputtime,tf,VTHMUXDRV2,VTHMUXDRV3,RISE);
-   	nextinputtime = Tst2/(1-VTHMUXDRV3);
-   	dynPower+=Ceq*VddPow*VddPow;
-
-	lkgCurrent += 0.5 *  muxover * cmos_ileakage(Wmuxdrv3n,Wmuxdrv3p,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-
-	/*dt: doing all the H-tree segments*/
-	inrisetime = nextinputtime;
-	Tst3 = 0;
-
-	if(nr_muxdrvtreesegments) {
-		Ceq = draincap(Wmuxdrv3p,PCH,1)+draincap(Wmuxdrv3n,NCH,1) + 
-			  gatecap(3*WmuxdrvtreeN[nr_muxdrvtreesegments-1],0) + Cmuxdrvtreesegments[nr_muxdrvtreesegments-1];
-		Req = transreson(Wmuxdrv3n,NCH,1) + Rmuxdrvtreesegments[nr_muxdrvtreesegments-1]; 
-
-		tf = Ceq*Req;
-		this_delay = horowitz(inrisetime,tf,VTHINV360x240,VTHINV360x240,RISE);
-
-		Tst3 += this_delay;
-		inrisetime = this_delay/(1.0-VTHINV360x240);
-
-		dynPower+=A*Ceq*.5*VddPow*VddPow;
-		lkgCurrent += A*0.5*cmos_ileakage(Wmuxdrv3n,Wmuxdrv3p,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-	}
-
-	for(i=nr_muxdrvtreesegments; i>2;i--) {
-		/*dt: this too should alternate...*/
-		Ceq = (Cmuxdrvtreesegments[i-2] + draincap(2*WmuxdrvtreeN[i-1],PCH,1)+ draincap(WmuxdrvtreeN[i-1],NCH,1) + 
-			  gatecap(3*WmuxdrvtreeN[i-2],0.0));
-		Req = (Rmuxdrvtreesegments[i-2] + transreson(WmuxdrvtreeN[i-1],NCH,1));
-		tf = Req*Ceq;
-		/*dt: This shouldn't be all falling, but interleaved. Have to fix that at some point.*/
-        this_delay = horowitz(inrisetime,tf,VTHINV360x240,VTHINV360x240,RISE);
-		Tst3 += this_delay;
-		inrisetime = this_delay/(1.0 - VTHINV360x240);
-
-		dynPower+=A*Ceq*.5*VddPow*VddPow;
-		lkgCurrent += pow(2,nr_dectreesegments - i)*A*0.5*
-			          cmos_ileakage(WmuxdrvtreeN[i-1],2*WmuxdrvtreeN[i-1],Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-	}
-
-	if(nr_muxdrvtreesegments) {
-		Ceq = BITOUT*gatecap(Woutdrvseln+Woutdrvselp+Woutdrvnorn+Woutdrvnorp,20.0 / FUDGEFACTOR) +
-			  + Cdectreesegments[0] + draincap(2*WmuxdrvtreeN[0],PCH,1)+ draincap(WmuxdrvtreeN[0],NCH,1); 
-		Rwire = Rmuxdrvtreesegments[0];
-		tf = (Rwire + transreson(2*WmuxdrvtreeN[0],PCH,1))*Ceq;
-		this_delay = horowitz(inrisetime,tf,VTHINV360x240,VTHOUTDRINV,FALL);;
-        Tst3 += this_delay;
-		inrisetime = this_delay/VTHOUTDRINV;
-		dynPower+=A*Ceq*.5*VddPow*VddPow;
-		lkgCurrent += pow(2,nr_muxdrvtreesegments)*A*0.5*cmos_ileakage(WmuxdrvtreeN[0],2*WmuxdrvtreeN[0],Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-	
-	}
-	else {
-		Ceq  = BITOUT*gatecap(Woutdrvseln+Woutdrvselp+Woutdrvnorn+Woutdrvnorp,20.0 / FUDGEFACTOR);
-		Ceq += draincap(Wmuxdrv3p,PCH,1) + draincap(Wmuxdrv3n,NCH,1);
-		Ceq += GlobalCwordmetal*wirelength_h+ GlobalCbitmetal*wirelength_v;
-
-   		Req  = (GlobalRwordmetal*wirelength_h+GlobalRbitmetal*wirelength_v)/2.0;
-		Req += transreson(Wmuxdrv3p,PCH,1);
-   		tf = Ceq*Req;
-   		Tst3 = horowitz(inrisetime,tf,VTHMUXDRV3,VTHOUTDRINV,FALL);
-		//nextinputtime = Tst3/VSINV;
-   		*outputtime = Tst3/(VTHOUTDRINV);
-   		dynPower+= A*Ceq*VddPow*VddPow;
-	}
-	
-	power->readOp.dynamic = dynPower;
-	power->readOp.leakage = lkgCurrent * VddPow;
-
-	power->writeOp.dynamic = 0.0;
-	power->writeOp.leakage = lkgCurrent * VddPow;
-
-
-	overall_delay = (Tst1 + Tst2 + Tst3);
-	return overall_delay;
-}
-
-double senseext_driver_delay(int A,char fullyassoc,
-				double inputtime,double *outputtime, double wirelength_sense_v,double wirelength_sense_h, powerDef *power)
-{
-   	double Ceq,Req,tf,nextinputtime;
-   	//double Tst1,Tst2,Tst3;
-	double Tst1,Tst2;
-	double lkgCurrent = 0.0, dynPower=0.0;
-
-   	if(fullyassoc) {
-   	     A=1;
-   	}
-
-   	/* first driver stage */
-
-   	Ceq = draincap(Wsenseextdrv1p,PCH,1) + draincap(Wsenseextdrv1n,NCH,1) +
-   		  gatecap(Wsenseextdrv2n+Wsenseextdrv2p,10.0 / FUDGEFACTOR);
-   	Req = transreson(Wsenseextdrv1n,NCH,1);
-   	tf = Ceq*Req;
-   	Tst1 = horowitz(inputtime,tf,VTHSENSEEXTDRV,VTHSENSEEXTDRV,FALL);
-   	nextinputtime = Tst1/VTHSENSEEXTDRV;
-   	dynPower+=Ceq*VddPow*VddPow*.5* BITOUT * A * muxover;
-
-	lkgCurrent = 0.5 * BITOUT * A * muxover *cmos_ileakage(Wsenseextdrv1n,Wsenseextdrv1p,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-   	/* second driver stage */
-
-   	Ceq = draincap(Wsenseextdrv2p,PCH,1) + draincap(Wsenseextdrv2n,NCH,1) +
-   	      GlobalCwordmetal*wirelength_sense_h + GlobalCbitmetal*wirelength_sense_v;
-
-   	Req = (GlobalRwordmetal*wirelength_sense_h + GlobalRbitmetal*wirelength_sense_v)/2.0 + transreson(Wsenseextdrv2p,PCH,1);
-
-   	tf = Ceq*Req;
-   	Tst2 = horowitz(nextinputtime,tf,VTHSENSEEXTDRV,VTHOUTDRNAND,RISE);
-
-   	*outputtime = Tst2/(1-VTHOUTDRNAND);
-   	dynPower+=Ceq*VddPow*VddPow*.5* BITOUT * A * muxover;
-
-	lkgCurrent = 0.5 * BITOUT * A * muxover  * cmos_ileakage(Wsenseextdrv2n,Wsenseextdrv2p,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp); 
-   	//   fprintf(stderr, "Pow %f %f\n", Ceq*VddPow*VddPow*.5*BITOUT*A*muxover*1e3, Ceq*VddPow*VddPow*.5*BITOUT*A*muxover*1e3);
-
-	power->readOp.dynamic = dynPower;
-	power->readOp.leakage = lkgCurrent * VddPow;
-
-	power->writeOp.dynamic = 0.0;
-	power->writeOp.leakage = lkgCurrent * VddPow;
-
-   	return(Tst1 + Tst2);
-
-}
-
-
-
-double total_out_driver_delay (int C,int B,int A,char fullyassoc,int Ndbl,double Nspd,int Ndwl,int Ntbl,int Ntwl,
-			int Ntspd,double NSubbanks,double inputtime,double *outputtime,powerDef *power)
-{
-  powerDef single_power;
-  double total_senseext_driver, single_senseext_driver;
-  int cols_data_subarray, rows_data_subarray, cols_tag_subarray,
-    rows_tag_subarray;
-  double subbank_v, subbank_h, sub_v, sub_h, inter_v, inter_h, htree;
-  int htree_int, tagbits;
-  int cols_fa_subarray, rows_fa_subarray;
-
-  reset_powerDef(&single_power);
-  total_senseext_driver = 0.0;
-  single_senseext_driver = 0.0;
-
-  if (!fullyassoc)
-    {
-	  //v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-	  //the final int value is the correct one 
-      //cols_data_subarray = (8 * B * A * Nspd / Ndwl);
-      //rows_data_subarray = (C / (B * A * Ndbl * Nspd));
-	  cols_data_subarray = (int)(8 * B * A * Nspd / Ndwl + EPSILON);
-      rows_data_subarray = (int)(C / (B * A * Ndbl * Nspd) + EPSILON);
-
-      if (Ndwl * Ndbl == 1)
-	{
-	  sub_v = rows_data_subarray;
-	  sub_h = cols_data_subarray;
-	}
-      if (Ndwl * Ndbl == 2)
-	{
-	  sub_v = rows_data_subarray;
-	  sub_h = 2 * cols_data_subarray;
-	}
-
-      if (Ndwl * Ndbl > 2)
-	{
-	  htree = logtwo ((double) (Ndwl * Ndbl));
-	  //v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-      //the final int value is the correct one 
-	  //htree_int = (int) htree;
-	  htree_int = (int) (htree + EPSILON);
-	  if (htree_int % 2 == 0)
-	    {
-	      sub_v = sqrt (Ndwl * Ndbl) * rows_data_subarray;
-	      sub_h = sqrt (Ndwl * Ndbl) * cols_data_subarray;
-	    }
-	  else
-	    {
-	      sub_v = sqrt (Ndwl * Ndbl / 2) * rows_data_subarray;
-	      sub_h = 2 * sqrt (Ndwl * Ndbl / 2) * cols_data_subarray;
-	    }
-	}
-      inter_v = sub_v;
-      inter_h = sub_h;
-
-      rows_tag_subarray = C / (B * A * Ntbl * Ntspd);
-
-	  if(!force_tag) {
-	     //v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-         //the final int value is the correct one 
-		 //tagbits = ADDRESS_BITS + EXTRA_TAG_BITS - (int) logtwo ((double) C) +
-			//(	int) logtwo ((double) A) - (int) (logtwo (NSubbanks));
-		 tagbits = (int) (ADDRESS_BITS + EXTRA_TAG_BITS - (int) logtwo ((double) C) +
-			(int) logtwo ((double) A) - (int) (logtwo (NSubbanks)) + EPSILON);
-	  }
-	  else {
-		  tagbits = force_tag_size;
-	  }
-      cols_tag_subarray = tagbits * A * Ntspd / Ntwl;
-
-      if (Ntwl * Ntbl == 1)
-	{
-	  sub_v = rows_tag_subarray;
-	  sub_h = cols_tag_subarray;
-	}
-      if (Ntwl * Ntbl == 2)
-	{
-	  sub_v = rows_tag_subarray;
-	  sub_h = 2 * cols_tag_subarray;
-	}
-
-      if (Ntwl * Ntbl > 2)
-	{
-	  htree = logtwo ((double) (Ntwl * Ntbl));
-	  //v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-      //the final int value is the correct one 
-	  //htree_int = (int) htree;
-	  htree_int = (int) (htree + EPSILON);
-	  if (htree_int % 2 == 0)
-	    {
-	      sub_v = sqrt (Ntwl * Ntbl) * rows_tag_subarray;
-	      sub_h = sqrt (Ntwl * Ntbl) * cols_tag_subarray;
-	    }
-	  else
-	    {
-	      sub_v = sqrt (Ntwl * Ntbl / 2) * rows_tag_subarray;
-	      sub_h = 2 * sqrt (Ntwl * Ntbl / 2) * cols_tag_subarray;
-	    }
-	}
-
-      inter_v = MAX (sub_v, inter_v);
-      inter_h += sub_h;
-      subbank_h = inter_h;
-      subbank_v = inter_v;
-    }
-  else
-    {
-      rows_fa_subarray = (C / (B * Ndbl));
-	  if(!force_tag) {
-		//v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-        //the final int value is the correct one 
-		//tagbits = ADDRESS_BITS + EXTRA_TAG_BITS - (int) logtwo ((double) B);
-		tagbits = (int) (ADDRESS_BITS + EXTRA_TAG_BITS - (int) logtwo ((double) B) + EPSILON);
-	  }
-	  else {
-		  tagbits = force_tag_size;
-	  }
-      cols_tag_subarray = tagbits;
-      cols_fa_subarray = (8 * B) + cols_tag_subarray;
-
-      if (Ndbl == 1)
-	{
-	  sub_v = rows_fa_subarray;
-	  sub_h = cols_fa_subarray;
-	}
-      if (Ndbl == 2)
-	{
-	  sub_v = rows_fa_subarray;
-	  sub_h = 2 * cols_fa_subarray;
-	}
-
-      if (Ndbl > 2)
-	{
-	  htree = logtwo ((double) (Ndbl));
-	  //v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-      //the final int value is the correct one 
-	  //htree_int = (int) htree;
-	  htree_int = (int) (htree + EPSILON);
-	  if (htree_int % 2 == 0)
-	    {
-	      sub_v = sqrt (Ndbl) * rows_fa_subarray;
-	      sub_h = sqrt (Ndbl) * cols_fa_subarray;
-	    }
-	  else
-	    {
-	      sub_v = sqrt (Ndbl / 2) * rows_fa_subarray;
-	      sub_h = 2 * sqrt (Ndbl / 2) * cols_fa_subarray;
-	    }
-	}
-      inter_v = sub_v;
-      inter_h = sub_h;
-
-      subbank_v = inter_v;
-      subbank_h = inter_h;
-    }
-
-
-  if (NSubbanks == 1.0 || NSubbanks == 2.0)
-    {
-      subbank_h = 0;
-      subbank_v = 0;
-      single_senseext_driver =
-	senseext_driver_delay (A, fullyassoc,inputtime,outputtime,
-							subbank_v, subbank_h, &single_power);
-      total_senseext_driver += single_senseext_driver;
-      add_powerDef(power,single_power,*power);
-    }
-
-  while (NSubbanks > 2.0)
-    {
-      if (NSubbanks == 4.0)
-	{
-	  subbank_h = 0;
-	}
-
-      single_senseext_driver =
-	senseext_driver_delay (A, fullyassoc, inputtime, outputtime, subbank_v,
-			       subbank_h, &single_power);
-
-      NSubbanks = NSubbanks / 4.0;
-      subbank_v = 2 * subbank_v;
-      subbank_h = 2 * subbank_h;
-      inputtime = *outputtime;
-      total_senseext_driver += single_senseext_driver;
-      add_powerDef(power,single_power,*power);
-    }
-  return (total_senseext_driver);
-
-}
-
-/* Valid driver (see section 6.9 of tech report)
-   Note that this will only be called for a direct mapped cache */
-
-double valid_driver_delay (int C,int B,int A,char fullyassoc,int Ndbl,int Ndwl,double Nspd,int Ntbl,int Ntwl,int Ntspd,
-		    double *NSubbanks,double inputtime,powerDef *power)
-{
-  double Ceq, Tst1, tf;
-  int rows, tagbits, cols, l_valdrv_v = 0, l_valdrv_h = 0;
-  double wire_cap, wire_res;
-  double subbank_v, subbank_h;
-  int nr_subarrays_left = 0, v_or_h = 0;
-  int horizontal_step = 0, vertical_step = 0;
-
-  rows = C / (8 * B * A * Ntbl * Ntspd);
-
-  if(!force_tag) {
-    //v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-    //the final int value is the correct one 
-	//tagbits = ADDRESS_BITS + EXTRA_TAG_BITS - (int) logtwo ((double) C) + (int) logtwo ((double) A) -
-			//(int) (logtwo (*NSubbanks));
-	tagbits = (int) (ADDRESS_BITS + EXTRA_TAG_BITS - (int) logtwo ((double) C) + (int) logtwo ((double) A) -
-			(int) (logtwo (*NSubbanks)) + EPSILON);
-  }
-  else {
-	  tagbits = force_tag_size;
-  }
-  cols = tagbits * A * Ntspd / Ntwl;
-
-  /* calculate some layout info */
+  double c_load;
+  int    number_sense_amps_subarray;
+  double IsenseEn, IsenseN, IsenseP, Iiso;
+  double lkgIdlePh, lkgReadPh, lkgWritePh;
+  double lkgRead, lkgIdle;
+  double tau;
+  number_sense_amps_subarray = num_c_subarray / deg_bl_muxing;//in a subarray
+
+  //Bitline circuitry leakage. 
+  Iiso = simplified_pmos_leakage(g_tp.w_iso, is_dram);
+  IsenseEn = simplified_nmos_leakage(g_tp.w_sense_en, is_dram);
+  IsenseN  = simplified_nmos_leakage(g_tp.w_sense_n, is_dram);
+  IsenseP  = simplified_pmos_leakage(g_tp.w_sense_p, is_dram);
   
-  if (Ntwl * Ntbl == 1)
-    {
-      l_valdrv_v = 0;
-      l_valdrv_h = cols;
+  lkgIdlePh = IsenseEn;//+ 2*IoBufP;
+  lkgWritePh = Iiso + IsenseEn;// + 2*IoBufP + 2*Ipch;
+  lkgReadPh = Iiso + IsenseN + IsenseP;//+ IoBufN + IoBufP + 2*IsPch ;
+  lkgRead = lkgReadPh * number_sense_amps_subarray * 4 * num_act_mats_hor_dir + 
+            lkgIdlePh * number_sense_amps_subarray * 4 * (number_mats - num_act_mats_hor_dir);
+  lkgIdle = lkgIdlePh * number_sense_amps_subarray * 4 * number_mats;
+  *leak_power_sense_amps_closed_page_state = lkgIdlePh * g_tp.peri_global.Vdd * number_sense_amps_subarray * 4;
+  *leak_power_sense_amps_open_page_state   = lkgReadPh * g_tp.peri_global.Vdd * number_sense_amps_subarray * 4;
+  // sense amplifier has to drive logic in "data out driver" and sense precharge load.
+  // load seen by sense amp. New delay model for sense amp that is sensitive to both the output time 
+  //constant as well as the magnitude of input differential voltage.
+  *delay = 0;
+  *outrisetime = 0;
+  power->reset();
+  c_load = gate_C(g_tp.w_sense_p + g_tp.w_sense_n, 0, is_dram) +
+           drain_C_(g_tp.w_sense_n, NCH, 1, 0, cell.w * deg_bl_muxing / (RWP + ERP), is_dram) + 
+           drain_C_(g_tp.w_sense_p, PCH, 1, 0, cell.w * deg_bl_muxing / (RWP + ERP), is_dram) +
+           drain_C_(g_tp.w_iso,PCH,1, 0, cell.w * deg_bl_muxing / (RWP + ERP), is_dram) + 
+           drain_C_(g_tp.w_nmos_sa_mux, NCH, 1, 0, cell.w * deg_bl_muxing / (RWP + ERP), is_dram);
+  tau = c_load / g_tp.gm_sense_amp_latch;
+  *delay = tau * log(g_tp.peri_global.Vdd / Vbitsense);
+  power->readOp.dynamic = c_load * g_tp.peri_global.Vdd * g_tp.peri_global.Vdd * number_sense_amps_subarray * 4 * 
+                          num_act_mats_hor_dir;
+  power->readOp.leakage = lkgIdle * g_tp.peri_global.Vdd;
+}
+
+
+void delay_output_driver_at_subarray(
+    int deg_bitline_muxing,
+    int deg_sense_amp_muxing_level_1,
+    int deg_sense_amp_muxing_level_2,
+    int RWP,
+    int ERP,
+    double inrisetime,
+    double *outrisetime,
+    powerDef *power,
+    const Dout_htree_node & htree_node,
+    int number_mats,
+    double *delay,
+    double *delay_final_stage_subarray_output_driver,
+    bool   is_dram,
+    const Area & cell)
+{
+  uint32_t j;
+  int flag_final_stage_subarray_output_driver;
+  double c_load, rd, tf, this_delay, c_intrinsic, p_to_n_sizing_r;
+
+  power->reset();
+  *delay = 0;
+  *delay_final_stage_subarray_output_driver = 0;
+  flag_final_stage_subarray_output_driver = 0;
+  
+  p_to_n_sizing_r = pmos_to_nmos_sz_ratio(is_dram);
+  
+  // delay of signal through pass-transistor of first level of sense-amp mux to input of inverter-buffer.
+  rd = tr_R_on(g_tp.w_nmos_sa_mux, NCH, 1, is_dram);
+  c_load = deg_sense_amp_muxing_level_1 * drain_C_(g_tp.w_nmos_sa_mux, NCH, 1, 0, cell.w * deg_bitline_muxing / (RWP + ERP), is_dram) +
+           gate_C(g_tp.min_w_nmos_ + p_to_n_sizing_r * g_tp.min_w_nmos_, 0.0, is_dram);
+  tf = rd * c_load;
+  this_delay = horowitz(inrisetime, tf, 0.5, 0.5, RISE);
+  *delay += this_delay;
+  inrisetime = this_delay/(1.0 - 0.5);
+  power->readOp.dynamic += c_load * 0.5 * g_tp.peri_global.Vdd * g_tp.peri_global.Vdd;
+  power->readOp.leakage += 0;  //for now, let leakage of the pass transistor be 0
+  
+  //Delay of signal through inverter-buffer to second level of sense-amp mux.
+  //Internal delay of buffer
+  rd = tr_R_on(g_tp.min_w_nmos_, NCH, 1, is_dram);
+  c_load = drain_C_(g_tp.min_w_nmos_, NCH, 1, 1, g_tp.cell_h_def, is_dram) +
+           drain_C_(p_to_n_sizing_r * g_tp.min_w_nmos_, PCH, 1, 1, g_tp.cell_h_def, is_dram) +
+           gate_C(g_tp.min_w_nmos_ + p_to_n_sizing_r * g_tp.min_w_nmos_, 0.0, is_dram);
+  tf = rd * c_load;
+  this_delay = horowitz(inrisetime, tf, 0.5, 0.5, RISE);
+  *delay += this_delay;
+  inrisetime = this_delay/(1.0 - 0.5);
+  power->readOp.dynamic += c_load * 0.5 * g_tp.peri_global.Vdd * g_tp.peri_global.Vdd;
+  power->readOp.leakage += cmos_Ileak(g_tp.min_w_nmos_, p_to_n_sizing_r * g_tp.min_w_nmos_, is_dram) * 0.5 * g_tp.peri_global.Vdd;
+  //Inverter driving drain of pass transistor of second level of sense-amp mux.
+  rd = tr_R_on(g_tp.min_w_nmos_, NCH, 1, is_dram);
+  c_load = drain_C_(g_tp.min_w_nmos_, NCH, 1, 1, g_tp.cell_h_def, is_dram) +
+           drain_C_(p_to_n_sizing_r * g_tp.min_w_nmos_, PCH, 1, 1, g_tp.cell_h_def, is_dram) +
+           drain_C_(g_tp.w_nmos_sa_mux, NCH, 1, 0, cell.w * deg_bitline_muxing * deg_sense_amp_muxing_level_1 / (RWP + ERP), is_dram);
+  tf = rd * c_load;
+  this_delay = horowitz(inrisetime, tf, 0.5, 0.5, RISE);
+  *delay += this_delay;
+  inrisetime = this_delay/(1.0 - 0.5);
+  power->readOp.dynamic += c_load * 0.5 * g_tp.peri_global.Vdd * g_tp.peri_global.Vdd;
+  power->readOp.leakage += cmos_Ileak(g_tp.min_w_nmos_, p_to_n_sizing_r * g_tp.min_w_nmos_, is_dram) * 0.5 * g_tp.peri_global.Vdd;
+
+  //delay of signal through pass-transistor to input of subarray output driver.
+  rd = tr_R_on(g_tp.w_nmos_sa_mux, NCH, 1, is_dram);
+  c_load = deg_sense_amp_muxing_level_2 * drain_C_(g_tp.w_nmos_sa_mux, NCH, 1, 0, cell.w * deg_bitline_muxing * deg_sense_amp_muxing_level_1 / (RWP + ERP), is_dram) +
+           gate_C(htree_node.width_n[0] + htree_node.width_p[0] + htree_node.width_nor2_n + htree_node.width_nor2_p, 0.0, is_dram);
+  tf = rd * c_load;
+  this_delay = horowitz(inrisetime, tf, 0.5, 0.5, RISE);
+  *delay += this_delay;
+  inrisetime = this_delay/(1.0 - 0.5);
+  power->readOp.dynamic += c_load * 0.5 * g_tp.peri_global.Vdd * g_tp.peri_global.Vdd;
+  power->readOp.leakage += 0;//for now, let leakage of the pass transistor be 0
+
+  for (j = 0; j < htree_node.num_gates; ++j)
+  {
+    if(j == 0)
+    { //NAND2 gate
+      rd = tr_R_on(htree_node.width_n[j], NCH, 2, is_dram);
+      if (htree_node.num_gates ==2)
+      {
+        c_load = gate_C(htree_node.width_p[j+1], 0.0, is_dram);//NAND2 drives PMOS of output stage
+      }
+      else
+      {
+        c_load = gate_C(htree_node.width_n[j+1] + htree_node.width_p[j+1], 0.0, is_dram);//NAND2 drives inverter
+      }
+      c_intrinsic = drain_C_(htree_node.width_n[j], NCH, 2, 1, g_tp.cell_h_def, is_dram) + 
+                2 * drain_C_(htree_node.width_p[j], PCH, 1, 1, g_tp.cell_h_def, is_dram);
+      tf = rd * (c_intrinsic + c_load);
+      power->readOp.dynamic += (c_intrinsic + c_load) * 0.5 * g_tp.peri_global.Vdd * g_tp.peri_global.Vdd;
+      power->readOp.leakage += cmos_Ileak(htree_node.width_n[j], htree_node.width_p[j],  is_dram) * 0.5 * g_tp.peri_global.Vdd;
+      power->readOp.leakage += cmos_Ileak(htree_node.width_nor2_n, htree_node.width_nor2_p, is_dram) * 0.5 * g_tp.peri_global.Vdd;
     }
-  if (Ntwl * Ntbl == 2 || Ntwl * Ntbl == 4)
-    {
-      l_valdrv_v = 0;
-      l_valdrv_h = cols;
+    else if (j == htree_node.num_gates - 1)
+    { //PMOS
+      flag_final_stage_subarray_output_driver = 1;
+      rd = tr_R_on(htree_node.width_p[j], PCH, 1, is_dram);
+      c_load = htree_node.C_wire_ld + htree_node.C_gate_ld;
+      c_intrinsic = drain_C_(htree_node.width_p[j], PCH, 1, 1, g_tp.cell_h_def, is_dram) + 
+                    drain_C_(htree_node.width_n[j], NCH, 1, 1, g_tp.cell_h_def, is_dram);
+      tf = rd * (c_intrinsic + c_load) + htree_node.R_wire_ld * 
+           (htree_node.C_wire_ld / 2 + htree_node.C_gate_ld +
+            drain_C_(htree_node.width_n[j], NCH, 1, 1, g_tp.cell_h_def, is_dram) + 
+            drain_C_(htree_node.width_p[j], PCH, 1, 1, g_tp.cell_h_def, is_dram));
+      power->readOp.dynamic += (c_intrinsic + c_load) * 0.5 * g_tp.peri_global.Vdd * g_tp.peri_global.Vdd;
+      power->readOp.leakage += cmos_Ileak(htree_node.width_n[j], htree_node.width_p[j], is_dram) * 0.5 * g_tp.peri_global.Vdd;
+      flag_final_stage_subarray_output_driver = 1;
     }
-	else {
-		nr_subarrays_left = Ntwl*Ntbl;
-		nr_subarrays_left /= 4;
-		horizontal_step = cols;
-		vertical_step = C/(B*A*Ntbl*Ntspd);
-		l_valdrv_h = horizontal_step;
-		horizontal_step *= 2;
-		v_or_h = 1; // next step is vertical
-		
-		while(nr_subarrays_left > 1) {
-			if(v_or_h) {
-				l_valdrv_v += vertical_step;
-				v_or_h = 0;
-				vertical_step *= 2;
-				nr_subarrays_left /= 2;
-			}
-			else {
-				l_valdrv_h += horizontal_step;
-				v_or_h = 1;
-				horizontal_step *= 2;
-				nr_subarrays_left /= 2;
-			}
-		}
+    else
+    { //inverter
+      rd = tr_R_on(htree_node.width_n[j], NCH, 1, is_dram);
+      if (j == htree_node.num_gates - 2)
+      { //inverter driving PMOS of output stage
+        c_load = gate_C(htree_node.width_p[j+1], 0.0, is_dram);
+      }
+      else
+      { //inverter driving inverter
+        c_load = gate_C(htree_node.width_n[j+1] + htree_node.width_p[j+1], 0.0, is_dram);
+      }
+      c_intrinsic = drain_C_(htree_node.width_p[j], PCH, 1, 1, g_tp.cell_h_def, is_dram) + 
+                    drain_C_(htree_node.width_n[j], NCH, 1, 1, g_tp.cell_h_def, is_dram);
+      tf = rd * (c_intrinsic + c_load);
+      power->readOp.dynamic += (c_intrinsic + c_load) * 0.5 * g_tp.peri_global.Vdd * g_tp.peri_global.Vdd;
+      power->readOp.leakage += cmos_Ileak(htree_node.width_n[j] + htree_node.width_n[j] / 2, 
+          htree_node.width_p[j] + htree_node.width_p[j] /2, is_dram) * 0.5 * g_tp.peri_global.Vdd;
+    }
+    this_delay = horowitz(inrisetime, tf, 0.5, 0.5, RISE);
+    *delay += this_delay;
+    if (flag_final_stage_subarray_output_driver)
+    {
+      *delay_final_stage_subarray_output_driver = this_delay;
+    }
+    inrisetime = this_delay/(1.0 - 0.5);
   }
-
-  subbank_routing_length (C, B, A, fullyassoc, Ndbl, Nspd, Ndwl, Ntbl, Ntwl,
-			  Ntspd, *NSubbanks, &subbank_v, &subbank_h);
-
-  wire_cap =
-    GlobalCbitmetal * (l_valdrv_v + subbank_v) + GlobalCwordmetal * (l_valdrv_h +
-							 subbank_h);
-  wire_res =
-    GlobalRwordmetal * (l_valdrv_h + subbank_h) * 0.5 + GlobalRbitmetal * (l_valdrv_v +
-							       subbank_v) * 0.5;
-
-  Ceq =
-    draincap (Wmuxdrv12n, NCH, 1) + draincap (Wmuxdrv12p, PCH,
-					      1) + wire_cap + Cout;
-  tf = Ceq * (transreson (Wmuxdrv12p, PCH, 1) + wire_res);
-  Tst1 = horowitz (inputtime, tf, VTHMUXDRV1, 0.5, FALL);
-  power->readOp.dynamic += Ceq * VddPow * VddPow;
-
-  return (Tst1);
+  
+  *outrisetime = inrisetime;
 }
 
-double half_compare_delay(int C,int B,int A,int Ntwl,int Ntbl,int Ntspd,double NSubbanks,double inputtime,double *outputtime,powerDef *power)
+
+void delay_routing_to_bank(
+    int number_repeaters_htree_route_to_bank,
+    double length_htree_route_to_bank,
+    double sizing_repeater_htree_route_to_bank,
+    double inrisetime,
+    double *outrisetime,  
+    double *delay,
+    powerDef *power,
+    bool   is_dram,
+    const Area & cell)
 {
-   	double Req,Ceq,tf,st1del,st2del,st3del,nextinputtime,m;
-   	double c1,c2,r1,r2,tstep,a,b,c;
-   	double Tcomparatorni;
-   	int cols,tagbits;
-   	double lkgCurrent=0.0, dynPower=0.0;
-	int v_or_h = 0, hori = 0, vert = 0,
-	    horizontal_step = 0, vertical_step = 0 , nr_subarrays_left = 0;
-	double Wxtramuxdrv1n = 0, Wxtramuxdrv1p = 0, Wxtramuxdrv2n = 0, Wxtramuxdrv2p = 0;
-	double Cload = 0;
-	double muxdrv1del = 0, muxdrv2del = 0;
-
-   	/* First Inverter */
-
-   	Ceq = gatecap(Wcompinvn2+Wcompinvp2,10.0 / FUDGEFACTOR) +
-   	      draincap(Wcompinvp1,PCH,1) + draincap(Wcompinvn1,NCH,1);
-   	Req = transreson(Wcompinvp1,PCH,1);
-   	tf = Req*Ceq;
-   	st1del = horowitz(inputtime,tf,VTHCOMPINV,VTHCOMPINV,FALL);
-   	nextinputtime = st1del/VTHCOMPINV;
-   	dynPower+=Ceq*VddPow*VddPow*2*A;
-
-	lkgCurrent = 0.5 * A * cmos_ileakage(Wcompinvn1,Wcompinvp1,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-   	/* Second Inverter */
-
-   	Ceq = gatecap(Wcompinvn3+Wcompinvp3,10.0 / FUDGEFACTOR) +
-   	      draincap(Wcompinvp2,PCH,1) + draincap(Wcompinvn2,NCH,1);
-   	Req = transreson(Wcompinvn2,NCH,1);
-   	tf = Req*Ceq;
-   	st2del = horowitz(nextinputtime,tf,VTHCOMPINV,VTHCOMPINV,RISE);
-   	nextinputtime = st2del/(1.0-VTHCOMPINV);
-   	dynPower+=Ceq*VddPow*VddPow*2*A;
-
-	lkgCurrent += 0.5 * A * cmos_ileakage(Wcompinvn2,Wcompinvp2,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-
-   	/* Third Inverter */
-
-   	Ceq = gatecap(Wevalinvn+Wevalinvp,10.0 / FUDGEFACTOR) +
-   	      draincap(Wcompinvp3,PCH,1) + draincap(Wcompinvn3,NCH,1);
-   	Req = transreson(Wcompinvp3,PCH,1);
-   	tf = Req*Ceq;
-   	st3del = horowitz(nextinputtime,tf,VTHCOMPINV,VTHEVALINV,FALL);
-   	nextinputtime = st3del/(VTHEVALINV);
-   	dynPower+=Ceq*VddPow*VddPow*2*A;
-
-	lkgCurrent += 0.5 * A * cmos_ileakage(Wcompinvn3,Wcompinvp3,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-
-
-   	/* Final Inverter (virtual ground driver) discharging compare part */
-
-	/*dt: Certainly don't need the dirty bit in comparison. The valid bit is assumed to be handled elsewhere, because we don't need to route any data to compare with to it.*/
-	if(!force_tag) {
-		//v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-        //the final int value is the correct one 
-   		//tagbits = ADDRESS_BITS - (int)logtwo((double)C) + (int)logtwo((double)A)-(int)(logtwo(NSubbanks));
-		tagbits = (int) (ADDRESS_BITS - (int)logtwo((double)C) + (int)logtwo((double)A)-(int)(logtwo(NSubbanks)) + EPSILON);
-		/*dt: we have to round up in case we have an odd number of bits in the tag, to account for the longer path */
-		if ((tagbits % 4) == 0) {
-   			tagbits=tagbits/4;
-		}
-		else {
-			tagbits=tagbits/4 + 1;
-		}
-	}
-	else {
-		tagbits = force_tag_size;
-	}
-	cols = 0;
-	if(Ntwl*Ntbl==1) {
-	       	vert = 0;
-	        hori = 4*tagbits*A*Ntspd/Ntwl;
-	}
-    else if(Ntwl*Ntbl==2 || Ntwl*Ntbl==4) {
-            vert = 0;
-            hori = 4*tagbits*A*Ntspd/Ntwl;
-    }
-    else if(Ntwl*Ntbl>4) {
-            nr_subarrays_left = Ntwl* Ntbl;
-			nr_subarrays_left /= 4;
-            horizontal_step = 4*tagbits*A*Ntspd/Ntwl;
-            vertical_step = C/(B*A*Ntbl*Ntspd);
-            hori = horizontal_step;
-            horizontal_step *= 2;
-            v_or_h = 1; // next step is vertical
-            
-            while(nr_subarrays_left > 1) {
-                if(v_or_h) {
-                    vert += vertical_step;
-                    v_or_h = 0;
-                    vertical_step *= 2;
-                    nr_subarrays_left /= 2;
-                }
-                else {
-                    hori += horizontal_step;
-                    v_or_h = 1;
-                    horizontal_step *= 2;
-                    nr_subarrays_left /= 2;
-             }
-         }
-     }
-	
-	/*dt: I think we need to add at least one buffer (probably more) between the comparator output gate and the mux driver ('cause it's biig!)*/
-	
-	
-	Ceq = gatecap(WmuxdrvNANDn+WmuxdrvNANDp,20.0 / FUDGEFACTOR) +
-   	      hori*GlobalCwordmetal + vert*GlobalCbitmetal;
-	Cload = Ceq / gatecap(1.0,0.0);
-   	Wxtramuxdrv2p = Cload * SizingRatio * 2/3;
-   	Wxtramuxdrv2n = Cload * SizingRatio /3;
-
-	/*dt: changing this to a nand*/
-	Ceq = gatecap(Wxtramuxdrv2n+Wxtramuxdrv2p,20.0 / FUDGEFACTOR);
-	Cload = Ceq / gatecap(1.0,0.0);
-   	Wxtramuxdrv1p = Cload * SizingRatio * 2/3;
-   	Wxtramuxdrv1n = 2 * Cload * SizingRatio /3;
-
-   	r1 = transreson(Wcompn,NCH,2);
-   	r2 = transreson(Wevalinvn,NCH,1); /* was switch */
-   	c2 = (tagbits)*(draincap(Wcompn,NCH,1)+draincap(Wcompn,NCH,2))+
-   	      draincap(Wevalinvp,PCH,1) + draincap(Wevalinvn,NCH,1);
-   	c1 = (tagbits)*(draincap(Wcompn,NCH,1)+draincap(Wcompn,NCH,2))
-   	     +draincap(Wcompp,PCH,1) + 
-		 + gatecap(Wxtramuxdrv1n+Wxtramuxdrv1p,5.0 / FUDGEFACTOR);
-
-   	dynPower+=c2*VddPow*VddPow*2*A;
-   	dynPower+=c1*VddPow*VddPow*(A-1);
-
-	lkgCurrent += 0.5 * A * cmos_ileakage(Wevalinvn,Wevalinvp,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-
-	// double the tag_bits as the delay is being computed for only
-	// half the number. The leakage is still for the total tag bits
-
-	// the comparator compares cols number of bits. Since these transistors are
-	// stacked, a stacking factor of 0.2 is used
-	lkgCurrent += 2 * cols * 0.2 * 0.5 * A * cmos_ileakage(Wcompn,Wcompp,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-
-	// leakage due to the mux driver
-	lkgCurrent += 0.5 * A * cmos_ileakage(Wmuxdrv12n,Wmuxdrv12p,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-		
-   	/* time to go to threshold of mux driver */
-
-   	tstep = (r2*c2+(r1+r2)*c1)*log(1.0/VTHMUXNAND);
-
-   	/* take into account non-zero input rise time */
-
-   	m = Vdd/nextinputtime;
-
-   	if ((tstep) <= (0.5*(Vdd-Vt)/m)) {
-  		a = m;
-	    b = 2*((Vdd*VTHEVALINV)-Vt);
-        c = -2*(tstep)*(Vdd-Vt)+1/m*((Vdd*VTHEVALINV)-Vt)*((Vdd*VTHEVALINV)-Vt);
- 	    Tcomparatorni = (-b+sqrt(b*b-4*a*c))/(2*a);
-   	} else {
-		Tcomparatorni = (tstep) + (Vdd+Vt)/(2*m) - (Vdd*VTHEVALINV)/m;
-   	}
-   	nextinputtime = Tcomparatorni/(1.0-VTHMUXNAND);
-	//*outputtime = Tcomparatorni/(1.0-VTHMUXNAND);
-
-	/*dt: first mux buffer */
-
-	Ceq = gatecap(Wxtramuxdrv2n+Wxtramuxdrv2p,20.0 / FUDGEFACTOR) +
-   	      2 * draincap(Wxtramuxdrv1p,PCH,1) + draincap(Wxtramuxdrv1n,NCH,1);
-   	Req = transreson(Wxtramuxdrv1p,PCH,1);
-   	tf = Req*Ceq;
-   	muxdrv1del = horowitz(nextinputtime,tf,VTHCOMPINV,VTHCOMPINV,FALL);
-   	nextinputtime = muxdrv2del/VTHCOMPINV;
-   	dynPower+=Ceq*VddPow*VddPow;
-
-	lkgCurrent = 0.5 * A * cmos_ileakage(Wxtramuxdrv2n,Wxtramuxdrv2p,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-	
-
-	/*dt: last mux buffer */
-	
-	Ceq = gatecap(WmuxdrvNANDn+WmuxdrvNANDp,20.0 / FUDGEFACTOR) +
-   	      hori*GlobalCwordmetal + vert*GlobalCbitmetal + 
-   	      draincap(Wxtramuxdrv2p,PCH,1) + draincap(Wxtramuxdrv2n,NCH,1);
-   	Req = transreson(Wxtramuxdrv2p,PCH,1);
-   	tf = Req*Ceq;
-   	muxdrv2del = horowitz(nextinputtime,tf,VTHCOMPINV,VTHCOMPINV,FALL);
-   	*outputtime = muxdrv1del/VTHCOMPINV;
-   	dynPower+=Ceq*VddPow*VddPow;
-
-	lkgCurrent = 0.5 * A * cmos_ileakage(Wxtramuxdrv1n,Wxtramuxdrv1p,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-	
-	
-	power->readOp.dynamic = dynPower;
-	power->readOp.leakage = lkgCurrent * VddPow;
-
-	power->writeOp.dynamic = 0.0;
-	power->writeOp.leakage = lkgCurrent * VddPow;
-
-   	return(Tcomparatorni+st1del+st2del+st3del+muxdrv1del+muxdrv2del);
-}
-/*----------------------------------------------------------------------*/
-
-/* Data output delay (data side) -- see section 6.8
-   This is the time through the NAND/NOR gate and the final inverter 
-   assuming sel is already present */
-
-double dataoutput_delay (int C,int B,int A,char fullyassoc,int Ndbl,double Nspd,int Ndwl,
-		  double inrisetime,double *outrisetime,powerDef *power)
-{
-    //double Ceq,Req,Rwire,Rline;
-	double Ceq,Req,Rwire;
-    double tf;
-    double nordel,outdel,nextinputtime;
-	double l_outdrv_v = 0,l_outdrv_h = 0;
-	//int rows,cols,rows_fa_subarray,cols_fa_subarray;
-	int rows_fa_subarray,cols_fa_subarray;
-	//double htree, Cload;
-	double htree;
-	int htree_int,exp,tagbits;
-	double lkgCurrent = 0.0, dynPower=0.0;
-	int v_or_h = 0, nr_subarrays_left = 0, vertical_step = 0, horizontal_step = 0;
-	double this_delay;
-	int i;
-	/*dt: if we have fast cache mode, all A ways are routed to the edge of the data array*/
-	int routed_ways = fast_cache_access_flag ? A : 1;
-
-	if(!fullyassoc) {
-  	}
-  	else {
-  		rows_fa_subarray = (C/(B*Ndbl));
-		if(!force_tag) {
-			//v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-			//the final int value is the correct one 
-    		//tagbits = ADDRESS_BITS + EXTRA_TAG_BITS-(int)logtwo((double)B);
-			tagbits = (int) (ADDRESS_BITS + EXTRA_TAG_BITS-(int)logtwo((double)B) + EPSILON);
-		}
-		else {
-			tagbits = force_tag_size;
-		}
-        cols_fa_subarray = (CHUNKSIZE*B)+tagbits;
-        if(Ndbl==1) {
-    	    l_outdrv_v= 0;
-            l_outdrv_h= cols_fa_subarray;
-        }
-        if(Ndbl==2 || Ndbl==4) {
-            l_outdrv_v= 0;
-            l_outdrv_h= 2*cols_fa_subarray;
-        }
-        if(Ndbl>4) {
-            htree=logtwo((double)(Ndbl));
-			//v4.1: Fixing double->int type conversion problems. EPSILON is added below to make sure
-            //the final int value is the correct one 
-            //htree_int = (int) htree;
-			htree_int = (int) (htree + EPSILON);
-            if (htree_int % 2 ==0) {
-            	exp = (htree_int/2-1);
-                l_outdrv_v = (powers(2,exp)-1)*rows_fa_subarray;
-                l_outdrv_h = sqrt(Ndbl)*cols_fa_subarray;
-            }
-            else {
-                exp = (htree_int+1)/2-1;
-                l_outdrv_v = (powers(2,exp)-1)*rows_fa_subarray;
-                l_outdrv_h = sqrt(Ndbl/2)*cols_fa_subarray;
-            }
-        }
-	}
-    /* Delay of NOR gate */
-
-    Ceq = 2*draincap(Woutdrvnorn,NCH,1)+draincap(Woutdrvnorp,PCH,2)+
-          gatecap(Woutdrivern,10.0 / FUDGEFACTOR);
-
-    tf = Ceq*transreson(Woutdrvnorp,PCH,2);
-    nordel = horowitz(inrisetime,tf,VTHOUTDRNOR,VTHOUTDRIVE,FALL);
-    nextinputtime = nordel/(VTHOUTDRIVE);
-	dynPower+=Ceq*VddPow*VddPow*.5*BITOUT;
-
-	lkgCurrent += 0.5 * BITOUT * routed_ways * muxover * cmos_ileakage(Woutdrvseln,Woutdrvselp,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-	lkgCurrent += 0.5 * 0.2 * BITOUT * routed_ways * muxover * cmos_ileakage(Woutdrvnorn,Woutdrvnorp,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-	lkgCurrent += 0.5 * 0.2 * BITOUT * routed_ways * muxover * cmos_ileakage(Woutdrvnandn,Woutdrvnandp,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-
-
-    /* Delay of output driver tree*/
-
-	if(nr_outdrvtreesegments) {
-		Ceq = (draincap(Woutdrivern,NCH,1)+draincap(Woutdriverp,PCH,1))*A*muxover
-			+ Coutdrvtreesegments[0] + gatecap(3*WoutdrvtreeN[1],0.0);	
-	}
-	else {
-		Ceq = (draincap(Woutdrivern,NCH,1)+draincap(Woutdriverp,PCH,1))*A*muxover
-			+ Coutdrvtreesegments[0] + gatecap(Wsenseextdrv1n+Wsenseextdrv1p,10.0 / FUDGEFACTOR);
-	}
-	Rwire = Routdrvtreesegments[0];
-
-	dynPower+= routed_ways * Ceq*VddPow*VddPow*.5*BITOUT;//factor of routed_ways added by Shyam
-
-	lkgCurrent += 0.5 * BITOUT * routed_ways * muxover * cmos_ileakage(Woutdrivern,Woutdriverp,Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-
-    tf = Ceq*(transreson(Woutdrivern,NCH,1)+Rwire);
-    outdel = horowitz(nextinputtime,tf,VTHOUTDRIVE,0.5,RISE);
-
-	*outrisetime = outdel/(1.0 - VTHOUTDRIVE);
-
-	/*dt: doing all the H-tree segments*/
-
-	if(nr_outdrvtreesegments) {
-		for(i=1; i<nr_outdrvtreesegments-1;i++) {
-			/*dt: this too should alternate...*/
-			Ceq = (Coutdrvtreesegments[i] + draincap(2*WoutdrvtreeN[i],PCH,1)+ draincap(WoutdrvtreeN[i],NCH,1) + 
-				gatecap(3*WoutdrvtreeN[i],0.0));
-			Req = (Routdrvtreesegments[i] + transreson(WoutdrvtreeN[i],NCH,1));
-			tf = Req*Ceq;
-			/*dt: This shouldn't be all falling, but interleaved. Have to fix that at some point.*/
-			this_delay = horowitz(*outrisetime,tf,VTHINV360x240,VTHINV360x240,RISE);
-			outdel += this_delay;
-			*outrisetime = this_delay/(1.0 - VTHINV360x240);
-
-			dynPower+= routed_ways*BITOUT*Ceq*.5*VddPow*VddPow;
-			lkgCurrent += pow(2,nr_outdrvtreesegments - i)*routed_ways*BITOUT*0.5*
-				          cmos_ileakage(WoutdrvtreeN[i],2*WoutdrvtreeN[i],Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-		}
-		Ceq = Coutdrvtreesegments[nr_outdrvtreesegments-1] + draincap(2*WoutdrvtreeN[nr_outdrvtreesegments-1],PCH,1)+ 
-			   draincap(WoutdrvtreeN[nr_outdrvtreesegments-1],NCH,1) + gatecap(Wsenseextdrv1n+Wsenseextdrv1p,10.0 / FUDGEFACTOR);
-		Req = (Routdrvtreesegments[nr_outdrvtreesegments-1] + transreson(WoutdrvtreeN[nr_outdrvtreesegments-1],NCH,1));
-		tf = Req*Ceq;
-		/*dt: This shouldn't be all falling, but interleaved. Have to fix that at some point.*/
-		this_delay = horowitz(*outrisetime,tf,VTHINV360x240,VTHINV360x240,RISE);
-		outdel += this_delay;
-		*outrisetime = this_delay/(1.0 - VTHINV360x240);
-		dynPower+=routed_ways*BITOUT*Ceq*.5*VddPow*VddPow;
-		lkgCurrent += routed_ways*BITOUT*0.5*cmos_ileakage(WoutdrvtreeN[nr_outdrvtreesegments-1],2*WoutdrvtreeN[nr_outdrvtreesegments-1],
-				          Vt_bit_nmos_low,Vthn,Vt_bit_pmos_low,Vthp);
-	}
-
-    //*outrisetime = outdel/0.5;
-
-    power->readOp.dynamic = dynPower;
-    power->readOp.leakage = lkgCurrent * VddPow;
-
-	power->writeOp.dynamic = 0.0;
-    power->writeOp.leakage = lkgCurrent * VddPow;
-
-   	return(outdel+nordel);
-}
-
-/*----------------------------------------------------------------------*/
-
-/* Sel inverter delay (part of the output driver)  see section 6.8 */
-
-double selb_delay_tag_path (double inrisetime,double *outrisetime,powerDef *power)
-{
-  double Ceq, Tst1, tf;
-
-  Ceq = draincap (Woutdrvseln, NCH, 1) + draincap (Woutdrvselp, PCH, 1) +
-    gatecap (Woutdrvnandn + Woutdrvnandp, 10.0 / FUDGEFACTOR);
-  tf = Ceq * transreson (Woutdrvseln, NCH, 1);
-  Tst1 = horowitz (inrisetime, tf, VTHOUTDRINV, VTHOUTDRNAND, RISE);
-  *outrisetime = Tst1 / (1.0 - VTHOUTDRNAND);
-  power->readOp.dynamic += Ceq * VddPow * VddPow;
-
-  return (Tst1);
-}
-
-
-/*----------------------------------------------------------------------*/
-
-/* This routine calculates the extra time required after an access before
- * the next access can occur [ie.  it returns (cycle time-access time)].
- */
-
-double precharge_delay (double worddata)
-{
-  double Ceq, tf, pretime;
-
-  /* as discussed in the tech report, the delay is the delay of
-     4 inverter delays (each with fanout of 4) plus the delay of
-     the wordline */
-
-  Ceq = draincap (Wdecinvn, NCH, 1) + draincap (Wdecinvp, PCH, 1) +
-    4 * gatecap (Wdecinvn + Wdecinvp, 0.0);
-  tf = Ceq * transreson (Wdecinvn, NCH, 1);
-  pretime = 4 * horowitz (0.0, tf, 0.5, 0.5, RISE) + worddata;
-
-  return (pretime);
-}
-
-void calc_wire_parameters(parameter_type *parameters) {
-	if (parameters->fully_assoc)
-    /* If model is a fully associative cache - use larger cell size */
+  double rd, c_intrinsic, c_load, r_wire, tf, this_delay, p_to_n_sizing_r;
+  int i;
+  *delay = 0;
+  
+  p_to_n_sizing_r = pmos_to_nmos_sz_ratio(is_dram);
+  //Add delay of cascade of inverters that drives the first repeater. FIX this.
+  if (length_htree_route_to_bank > 0)
+  {
+    for (i = 0; i < number_repeaters_htree_route_to_bank; ++i)
     {
-      FACbitmetal =
-	((32 / FUDGEFACTOR +
-	  2 * WIREPITCH *
-	  ((parameters->
-	    num_write_ports + parameters->num_readwrite_ports - 1) +
-	   parameters->num_read_ports)) * Default_Cmetal);
-      FACwordmetal =
-	((BitWidth +
-	  2 * WIREPITCH *
-	  ((parameters->
-	    num_write_ports + parameters->num_readwrite_ports - 1)) +
-	  WIREPITCH * (parameters->num_read_ports)) * Default_Cmetal);
-	  //v4.1: Fixing an error in the resistance equations below. WIREHEIGHTRATIO is replaced by
-	  //WIREWIDTH. 
-      /*FARbitmetal =
-	(((32 +
-	   2 * WIREPITCH *
-	   ((parameters->
-	     num_write_ports + parameters->num_readwrite_ports - 1) +
-	    parameters->num_read_ports))) * 
-		(Default_CopperSheetResistancePerMicroM /WIREHEIGTHRATIO * FUDGEFACTOR));
-      FARwordmetal =
-	(((BitWidth +
-	   2 * WIREPITCH *
-	   ((parameters->
-	     num_write_ports + parameters->num_readwrite_ports - 1)) +
-	   WIREPITCH * (parameters->num_read_ports))) * (Default_CopperSheetResistancePerMicroM /WIREHEIGTHRATIO * FUDGEFACTOR));*/
+      rd = tr_R_on(sizing_repeater_htree_route_to_bank * g_tp.min_w_nmos_, NCH, 1, is_dram);
+      c_intrinsic = drain_C_(sizing_repeater_htree_route_to_bank * p_to_n_sizing_r * g_tp.min_w_nmos_, PCH, 1, 1, g_tp.cell_h_def, is_dram) + 
+                    drain_C_(sizing_repeater_htree_route_to_bank * g_tp.min_w_nmos_, NCH, 1, 1, g_tp.cell_h_def, is_dram);
+      c_load = sizing_repeater_htree_route_to_bank * gate_C(g_tp.min_w_nmos_ +
+          p_to_n_sizing_r * g_tp.min_w_nmos_, 0, is_dram);
+      //The last repeater actually sees the load at the input of the bank as well. FIX this.
+      //if(i == number_repeaters_htree_route_to_bank - 1){
+      //c_load = ptr_intcnt_seg->c_gate_load;
+      //}
 
-	  FARbitmetal =
-	(((32 / FUDGEFACTOR +
-	   2 * WIREPITCH *
-	   ((parameters->
-	     num_write_ports + parameters->num_readwrite_ports - 1) +
-	    parameters->num_read_ports))) * 
-		(Default_CopperSheetResistancePerMicroM /WIREWIDTH * FUDGEFACTOR));
-      FARwordmetal =
-	(((BitWidth +
-	   2 * WIREPITCH *
-	   ((parameters->
-	     num_write_ports + parameters->num_readwrite_ports - 1)) +
-	   WIREPITCH * (parameters->num_read_ports))) * (Default_CopperSheetResistancePerMicroM /WIREWIDTH * FUDGEFACTOR));
+      r_wire = (length_htree_route_to_bank / number_repeaters_htree_route_to_bank) * g_tp.wire_outside_mat.R_per_um;
+      tf = rd * c_intrinsic + (rd + r_wire) * c_load;
+      this_delay = horowitz(inrisetime, tf, 0.5, 0.5, RISE);
+      *delay += this_delay;
+      inrisetime = this_delay / (1.0 - 0.5);  
+      power->readOp.dynamic += (c_intrinsic + c_load) * 0.5 *  g_tp.peri_global.Vdd * g_tp.peri_global.Vdd;
+      power->readOp.leakage += cmos_Ileak(
+          sizing_repeater_htree_route_to_bank * g_tp.min_w_nmos_,
+          sizing_repeater_htree_route_to_bank * p_to_n_sizing_r * g_tp.min_w_nmos_,  is_dram) * 0.5 * g_tp.peri_global.Vdd;
     }
-	/*dt: Capacitance gets better with scaling, because C = K*epsilon*L*(W/x_ox + H/L_s), where
-	      W: width of the wire, L: length of the wire, H: height of the wire, x_ox: thickness of the oxide separating two wires
-		  vertically, L_s: thickness of the insulator separating two wires horizontally 
-		  K and epsilon are constants
-		  To a first order all the variables scale with featuresize => C~ const. * f^2/f = const. * f 
-		  Note that FUDGEFACTOR is the inverse of featuresize
-		  Since we're going to divide by FUDGEFACTOR in the end anyway, I'm leaving this alone and just adding this comment for future reference.
-    */
-  Cbitmetal =
-    ((BitHeight +
-      2 * WIREPITCH *
-      ((parameters->num_write_ports + parameters->num_readwrite_ports - 1) +
-       parameters->num_read_ports)) * Default_Cmetal);
-  Cwordmetal =
-    ((BitWidth +
-      2 * WIREPITCH *
-      ((parameters->num_write_ports + parameters->num_readwrite_ports - 1)) +
-      WIREPITCH * (parameters->num_read_ports)) * Default_Cmetal);
-  /* dt: Resistance gets worse, since R = rho*L/(W*H), where L, W, H are the length, width and height of the wire.
-     All scale with featuresize, so R ~ const*f/f^2 = const./f
-	 Note that FUDGEFACTOR is the inverse of featuresize
-  */
-
-  //v4.1: Fixing an error in the resistance equations below. WIREHEIGHTRATIO is replaced by
-  // WIREWIDTH. 
-  /*Rbitmetal =
-    (((BitHeight +
-       2 * WIREPITCH *
-       ((parameters->num_write_ports + parameters->num_readwrite_ports - 1) + parameters->num_read_ports))) * 
-	   (Default_CopperSheetResistancePerMicroM /WIREHEIGTHRATIO * FUDGEFACTOR));
-  Rwordmetal =
-    (((BitWidth +
-       2 * WIREPITCH *
-       ((parameters->num_write_ports + parameters->num_readwrite_ports - 1)) + WIREPITCH * (parameters->num_read_ports))) * 
-	   (Default_CopperSheetResistancePerMicroM /WIREHEIGTHRATIO * FUDGEFACTOR));*/
-
-  Rbitmetal =
-    (((BitHeight +
-       2 * WIREPITCH *
-       ((parameters->num_write_ports + parameters->num_readwrite_ports - 1) + parameters->num_read_ports))) * 
-	   (Default_CopperSheetResistancePerMicroM /WIREWIDTH * FUDGEFACTOR));
-  Rwordmetal =
-    (((BitWidth +
-       2 * WIREPITCH *
-       ((parameters->num_write_ports + parameters->num_readwrite_ports - 1)) + WIREPITCH * (parameters->num_read_ports))) * 
-	   (Default_CopperSheetResistancePerMicroM /WIREWIDTH * FUDGEFACTOR));
-
-  /*dt: tags only need one RW port for when a line is evicted. All other ports can be simple read ports */
-  TagCbitmetal = (BitHeight + 2 * WIREPITCH * (parameters->num_read_ports + parameters->num_readwrite_ports - 1)) * 
-					Default_Cmetal;
-  /*dt: the +1 is because a RW port needs two bitlines, thus longer wordlines */
-  TagCwordmetal = (BitWidth + WIREPITCH * (parameters->num_read_ports + 2*(parameters->num_readwrite_ports - 1))) * 
-					Default_Cmetal; 
-  /*TagRbitmetal = (BitHeight + 2 * WIREPITCH * (parameters->num_read_ports + parameters->num_readwrite_ports - 1))  * 
-				 (Default_CopperSheetResistancePerMicroM /WIREHEIGTHRATIO * FUDGEFACTOR);
-  TagRwordmetal = (BitWidth + WIREPITCH * (parameters->num_read_ports + 2*(parameters->num_readwrite_ports - 1))) * 
-	              (Default_CopperSheetResistancePerMicroM /WIREHEIGTHRATIO * FUDGEFACTOR);*/
-
-  TagRbitmetal = (BitHeight + 2 * WIREPITCH * (parameters->num_read_ports + parameters->num_readwrite_ports - 1))  * 
-				 (Default_CopperSheetResistancePerMicroM /WIREHEIGTHRATIO * FUDGEFACTOR * FUDGEFACTOR);
-  TagRwordmetal = (BitWidth + WIREPITCH * (parameters->num_read_ports + 2*(parameters->num_readwrite_ports - 1))) * 
-	              (Default_CopperSheetResistancePerMicroM /WIREHEIGTHRATIO * FUDGEFACTOR * FUDGEFACTOR);
-
-  GlobalCbitmetal = CRatiolocal_to_interm*Cbitmetal;
-  GlobalCwordmetal = CRatiolocal_to_interm*Cwordmetal;
-
-  GlobalRbitmetal = RRatiolocal_to_interm*Rbitmetal; 
-  GlobalRwordmetal = RRatiolocal_to_interm*Rwordmetal; 
+    //From Ron Ho's thesis, energy-delay optimal repeaters improve dynamic energy approximately by 
+    //30% at the expense of approx 10% increase in delay. We simply apply this correction at the end here. 
+    //Assuming that leakage also improves by 30%. Doing it like this not right. FIX this - arrive at these numbers by deriving sizing, number of
+    //repeaters....
+    //*delay = 1.1 * (*delay);
+    //power->readOp.dynamic = 0.7 * power->readOp.dynamic;
+    //power->readOp.leakage = 0.7 * power->readOp.leakage;
+  }
+  *outrisetime = inrisetime;
 }
+
+
+void delay_fa_tag(
+    int tagbits,
+    int Ntbl,
+    int num_r_subarray,
+    double *delay,
+    powerDef *power,
+    const Area & cam_cell,
+    bool is_dram,
+    const Area & cell)
+{
+  double Tagdrive1, Tagdrive2, Tag1, Tag2, Tag3, outrisetime;
+  double Ceq, Rwire, tf, nextinputtime, c_intrinsic, rd, Cwire, c_gate_load;
+     
+  double Wdecdrivep, Wdecdriven, Wfadriven, Wfadrivep, Wfadrive2n, Wfadrive2p, Wfadecdrive1n, Wfadecdrive1p, 
+    Wfadecdrive2n, Wfadecdrive2p, Wfadecdriven, Wfadecdrivep, Wfaprechn, Wfaprechp,
+    Wdummyn, Wdummyinvn, Wdummyinvp, Wfainvn, Wfainvp, Waddrnandn, Waddrnandp,
+    Wfanandn, Wfanandp, Wfanorn, Wfanorp, Wdecnandn, Wdecnandp;
+
+  double FACwordmetal, FACbitmetal, FARbitmetal, FARwordmetal, dynPower;
+  int Htagbits;
+
+  FACwordmetal = cam_cell.get_w() * g_tp.wire_local.C_per_um;
+  FACbitmetal  = cam_cell.get_h() * g_tp.wire_local.C_per_um;
+  FARwordmetal = cam_cell.get_w() * g_tp.wire_local.R_per_um;
+  FARbitmetal  = cam_cell.get_h() * g_tp.wire_local.R_per_um;
+
+  dynPower = 0.0;
+
+  Wdecdrivep    =  450 * g_ip.F_sz_um;//this was 360 micron for the 0.8 micron process
+  Wdecdriven    =  300 * g_ip.F_sz_um;//this was 240 micron for the 0.8 micron process
+  Wfadriven     = 62.5 * g_ip.F_sz_um;//this was  50 micron for the 0.8 micron process
+  Wfadrivep     =  125 * g_ip.F_sz_um;//this was 100 micron for the 0.8 micron process
+  Wfadrive2n    =  250 * g_ip.F_sz_um;//this was 200 micron for the 0.8 micron process
+  Wfadrive2p    =  500 * g_ip.F_sz_um;//this was 400 micron for the 0.8 micron process
+  Wfadecdrive1n = 6.25 * g_ip.F_sz_um;//this was   5 micron for the 0.8 micron process
+  Wfadecdrive1p = 12.5 * g_ip.F_sz_um;//this was  10 micron for the 0.8 micron process
+  Wfadecdrive2n =   25 * g_ip.F_sz_um;//this was  20 micron for the 0.8 micron process
+  Wfadecdrive2p =   50 * g_ip.F_sz_um;//this was  40 micron for the 0.8 micron process  
+  Wfadecdriven  = 62.5 * g_ip.F_sz_um;//this was  50 micron for the 0.8 micron process
+  Wfadecdrivep  =  125 * g_ip.F_sz_um;//this was 100 micron for the 0.8 micron process
+  Wfaprechn     =  7.5 * g_ip.F_sz_um;//this was   6 micron for the 0.8 micron process
+  Wfaprechp     = 12.5 * g_ip.F_sz_um;//this was  10 micron for the 0.8 micron process
+  Wdummyn       = 12.5 * g_ip.F_sz_um;//this was  10 micron for the 0.8 micron process
+  Wdummyinvn    =   75 * g_ip.F_sz_um;//this was  60 micron for the 0.8 micron process  
+  Wdummyinvp    =  100 * g_ip.F_sz_um;//this was  80 micron for the 0.8 micron process
+  Wfainvn       = 12.5 * g_ip.F_sz_um;//this was  10 micron for the 0.8 micron process  
+  Wfainvp       =   25 * g_ip.F_sz_um;//this was  20 micron for the 0.8 micron process  
+  Waddrnandn    = 62.5 * g_ip.F_sz_um;//this was  50 micron for the 0.8 micron process  
+  Waddrnandp    = 62.5 * g_ip.F_sz_um;//this was  50 micron for the 0.8 micron process  
+  Wfanandn      =   25 * g_ip.F_sz_um;//this was  20 micron for the 0.8 micron process  
+  Wfanandp      = 37.5 * g_ip.F_sz_um;//this was  30 micron for the 0.8 micron process
+  Wfanorn       = 6.25 * g_ip.F_sz_um;//this was   5 micron for the 0.8 micron process  
+  Wfanorp       = 12.5 * g_ip.F_sz_um;//this was  10 micron for the 0.8 micron process
+  Wdecnandn     = 12.5 * g_ip.F_sz_um;//this was  10 micron for the 0.8 micron process  
+  Wdecnandp     = 37.5 * g_ip.F_sz_um;//this was  30 micron for the 0.8 micron process
+
+  Htagbits = (int)(ceil ((double) (tagbits) / 2.0));
+
+  //please refer to CACTI TR 2 and 3 for the implementation.
+  /* First stage, From the driver(am and an) to the comparators in all the rows including the dummy row, 
+     Assuming that comparators in both the normal matching line and the dummy matching line have the same sizing */ 
+  nextinputtime = 0;
+  Ceq = drain_C_(Wfadecdrive2p, PCH, 1, 1, g_tp.cell_h_def, is_dram) + 
+        drain_C_(Wfadecdrive2n, NCH, 1, 1, g_tp.cell_h_def, is_dram) +
+        gate_C(Wfadecdrivep + Wfadecdriven, 0, is_dram);
+  tf  = Ceq * tr_R_on(Wfadecdrive2n, NCH, 1, is_dram);
+  Tagdrive1     = horowitz(nextinputtime, tf, VSINV, VTHFA1, FALL);
+  nextinputtime = Tagdrive1 / VTHFA1;
+  dynPower     += Ceq * g_tp.peri_global.Vdd * g_tp.peri_global.Vdd * tagbits * Ntbl;
+  
+  rd = tr_R_on(Wfadecdrivep, PCH, 1, is_dram);
+  c_intrinsic = drain_C_(Wfadecdrivep, PCH, 1, 1, g_tp.cell_h_def, is_dram) +
+                drain_C_(Wfadecdriven, NCH, 1, 1, g_tp.cell_h_def, is_dram);
+  c_gate_load = gate_C(Wdummyn, 0, is_dram) * 2 * (num_r_subarray + 1);
+  Cwire = FACbitmetal * 2 * (num_r_subarray + 1);
+  Rwire = FARbitmetal * (num_r_subarray + 1);
+  tf = rd * (c_intrinsic + Ceq) + Rwire * (Cwire / 2 + c_gate_load);
+  Tagdrive2 = horowitz(nextinputtime, tf, VTHFA1, VTHFA2, RISE);
+  nextinputtime = Tagdrive2 / (1 - VTHFA2);
+  dynPower += (c_intrinsic + Cwire + c_gate_load) * g_tp.peri_global.Vdd * g_tp.peri_global.Vdd * tagbits * Ntbl;
+
+  /* second stage, from the trasistors in the comparators(both normal row and dummy row) to the NAND gates that combins both half*/
+  rd =  tr_R_on(Wdummyn, NCH, 2, is_dram);
+  c_intrinsic = Htagbits*2*drain_C_(Wdummyn, NCH, 2, 1, g_tp.cell_h_def, is_dram) +
+                drain_C_(Wfaprechp, PCH, 1, 1, g_tp.cell_h_def, is_dram);
+  Cwire = FACwordmetal * Htagbits;
+  Rwire = FARwordmetal * Htagbits;
+  c_gate_load = gate_C(Waddrnandn + Waddrnandp, 0, is_dram);
+  tf = rd * (c_intrinsic + Ceq) + Rwire * (Cwire / 2 + c_gate_load);
+  Tag1 = horowitz(nextinputtime, tf, VTHFA2, VTHFA3, FALL);
+  nextinputtime = Tag1 / VTHFA3;
+  dynPower += Ceq * g_tp.peri_global.Vdd * g_tp.peri_global.Vdd * num_r_subarray * Ntbl;
+
+  /* third stage, from the NAND2 gates to the drivers in the dummy row */
+  rd = tr_R_on(Waddrnandn, NCH, 2, is_dram);
+  c_intrinsic = drain_C_(Waddrnandn, NCH, 2, 1, g_tp.cell_h_def, is_dram) +
+                drain_C_(Waddrnandp, PCH, 1, 1, g_tp.cell_h_def, is_dram)*2;
+  c_gate_load = gate_C(Wdummyinvn + Wdummyinvp, 0, is_dram);
+  tf = rd * (c_intrinsic + c_gate_load);
+  Tag2 = horowitz(nextinputtime, tf, VTHFA3, VTHFA4, RISE);
+  nextinputtime = Tag2 / (1 - VTHFA4);
+  dynPower += Ceq * g_tp.peri_global.Vdd * g_tp.peri_global.Vdd * num_r_subarray * Ntbl;
+
+  /* fourth stage, from the driver in dummy matchline to the NOR2 gate which drives the wordline of the data portion  */
+  rd = tr_R_on(Wdummyinvn, NCH, 1, is_dram);
+  c_intrinsic = drain_C_(Wdummyinvn, NCH, 1, 1, g_tp.cell_h_def, is_dram);
+  Cwire = FACwordmetal * Htagbits +  FACbitmetal * num_r_subarray;
+  Rwire = FARwordmetal * Htagbits +  FARbitmetal * num_r_subarray;
+  c_gate_load = gate_C(Wfanorn + Wfanorp, 0, is_dram);
+  tf = rd * (c_intrinsic + Cwire) + Rwire * (Cwire / 2 + c_gate_load);
+  Tag3 = horowitz (nextinputtime, tf, VTHFA4, VTHFA5, FALL);
+  outrisetime = Tag3 / VTHFA5;
+  dynPower += (c_intrinsic + Cwire + c_gate_load) * g_tp.peri_global.Vdd * g_tp.peri_global.Vdd;
+
+  *delay = Tagdrive1 + Tagdrive2 + Tag1 + Tag2 + Tag3;
+  power->readOp.dynamic = dynPower;
+}
+
+
+
 
 /*======================================================================*/
 
-
-void calculate_time (result_type *result,arearesult_type *arearesult,area_type *arearesult_subbanked,parameter_type *parameters,
-		double *NSubbanks)
+bool calculate_time(
+    bool is_tag,
+    int pure_ram,
+    double Nspd,
+    unsigned int Ndwl, 
+    unsigned int Ndbl,
+    unsigned int Ndcm,
+    unsigned int Ndsam_lev_1,
+    unsigned int Ndsam_lev_2,
+    mem_array *ptr_array,
+    int flag_results_populate,
+    results_mem_array *ptr_results,
+    final_results *ptr_fin_res,
+    const ArrayEdgeToBankEdgeHtreeSizing & arr_edge_to_bank_edge_htree_sizing,
+    const BankHtreeSizing & bank_htree_sizing,
+    bool is_main_mem)
 {
-  arearesult_type arearesult_temp;
-  area_type arearesult_subbanked_temp;
+  uint32_t ram_cell_tech_type  = (is_tag) ? g_ip.tag_arr_ram_cell_tech_type : g_ip.data_arr_ram_cell_tech_type;
+  bool     is_dram             = ((ram_cell_tech_type == lp_dram) || (ram_cell_tech_type == comm_dram));
 
-  int i;
-  //int Ndwl, Ndbl, Ntwl, Ntbl, Ntspd, inter_subbanks, rows, columns,
-    //tag_driver_size1, tag_driver_size2;
-  int Ndwl, Ndbl, Ntwl, Ntbl, Ntspd, rows, columns;
-  double Nspd;
-  double Subbank_Efficiency, Total_Efficiency, max_efficiency, efficiency,
-    min_efficiency;
-  double max_aspect_ratio_total, aspect_ratio_total_temp;
-  //double bank_h, bank_v, subbank_h, subbank_v, inter_h, inter_v;
-  double bank_h, bank_v, subbank_h, subbank_v;
-  double wirelength_v, wirelength_h;
+  Area cell;
+
+  powerDef tot_power_addr_vertical_htree, tot_power_datain_vertical_htree,
+           tot_power_bitlines, tot_power_sense_amps, tot_power_subarray_output_drivers, 
+           tot_power_dataout_vertical_htree, tot_power_comparators, tot_power_crossbar;
+
+  powerDef tot_power, tot_power_row_predecode_block_drivers,
+           tot_power_bit_mux_predecode_block_drivers, 
+           tot_power_senseamp_mux_lev_1_predecode_block_drivers,
+           tot_power_senseamp_mux_lev_2_predecode_block_drivers,
+           tot_power_row_predecode_blocks, tot_power_bit_mux_predecode_blocks,
+           tot_power_senseamp_mux_lev_1_predecode_blocks,
+           tot_power_senseamp_mux_lev_2_predecode_blocks,
+           tot_power_row_decoders, 
+           tot_power_bit_mux_decoders,
+           tot_power_senseamp_mux_lev_1_decoders, 
+           tot_power_senseamp_mux_lev_2_decoders, 
+           tot_power_bitlines_precharge_eq_driver;
+
+  
   double access_time = 0;
-  powerDef total_power;
-  double before_mux = 0.0, after_mux = 0;
-  powerDef total_power_allbanks;
-  powerDef total_address_routing_power, total_power_without_routing;
-  double subbank_address_routing_delay = 0.0;
-  powerDef subbank_address_routing_power;
-  double decoder_data_driver = 0.0, decoder_data_3to8 =
-    0.0, decoder_data_inv = 0.0;
-  double decoder_data = 0.0, decoder_tag = 0.0, wordline_data =
-    0.0, wordline_tag = 0.0;
-  powerDef decoder_data_power, decoder_tag_power, wordline_data_power, wordline_tag_power;
-  double decoder_tag_driver = 0.0, decoder_tag_3to8 = 0.0, decoder_tag_inv =
-    0.0;
-  double bitline_data = 0.0, bitline_tag = 0.0, sense_amp_data =
-    0.0, sense_amp_tag = 0.0;
-  powerDef sense_amp_data_power, sense_amp_tag_power, bitline_tag_power, bitline_data_power;
-  double compare_tag = 0.0, mux_driver = 0.0, data_output = 0.0, selb = 0.0;
-  powerDef compare_tag_power, selb_power, mux_driver_power, valid_driver_power;
-  powerDef data_output_power;
-  double time_till_compare = 0.0, time_till_select = 0.0, valid_driver = 0.0;
-  double cycle_time = 0.0, precharge_del = 0.0;
-  double outrisetime = 0.0, inrisetime = 0.0, addr_inrisetime = 0.0;
-  double senseext_scale = 1.0;
-  double total_out_driver = 0.0;
-  powerDef total_out_driver_power;
-  double scale_init;
-  int data_nor_inputs = 1, tag_nor_inputs = 1;
-  double tag_delay_part1 = 0.0, tag_delay_part2 =
-    0.0, tag_delay_part3 = 0.0, tag_delay_part4 = 0.0, tag_delay_part5 =
-    0.0, tag_delay_part6 = 0.0;
-  double max_delay = 0;
-  int counter;
-  double Tpre,Tpre_tag;
-  int allports = 0, allreadports = 0, allwriteports = 0;
-  int tag_iteration_counter = 0;
-  double colsfa, desiredrisetimefa, Clinefa, Rpdrivefa; //Added by Shyam to incorporate FA caches 
-  //in v4.0
+  double delay_bitline = 0.0;
+  powerDef sense_amp_data_power,  bitline_data_power;
+  double cycle_time = 0.0;
+  double outrisetime = 0.0, inrisetime = 0.0;
+  double Tpre;
+  double writeback_delay;
+  int    num_r_subarray, num_c_subarray, deg_bl_muxing, deg_sa_mux_l1_non_assoc;
 
+  double c_wl_drv_ld, R_wire_wl_drv_out, R_wire_bit_mux_dec_out, R_wire_sa_mux_dec_out;
+  double row_dec_outrisetime, bit_mux_dec_outrisetime,
+         senseamp_mux_lev_1_dec_outrisetime, senseamp_mux_lev_2_dec_outrisetime;
+  double delay_addr_din_vertical_htree, delay_dout_vertical_htree, delay_before_subarray_output_driver,
+         delay_from_subarray_output_driver_to_output;
+  
+  double max_delay_before_row_decoder, max_delay_before_bit_mux_decoder, 
+         max_delay_before_senseamp_mux_lev_1_decoder,
+         max_delay_before_senseamp_mux_lev_2_decoder,
+         delay_within_mat_before_row_decoder,
+         delay_within_mat_before_bit_mux_decoder,
+         delay_within_mat_before_senseamp_mux_lev_1_decoder,
+         delay_within_mat_before_senseamp_mux_lev_2_decoder;
+  double row_dec_inrisetime, bit_mux_dec_inrisetime,
+         senseamp_mux_lev_1_dec_inrisetime,
+         senseamp_mux_lev_2_dec_inrisetime;
+  double delay_data_access_row_path, delay_data_access_col_path,
+         delay_data_access_senseamp_mux_lev_1_path, delay_data_access_senseamp_mux_lev_2_path,
+         temp_delay_data_access_path, delay_data_access_path; 
 
-  cached_tag_entry cached_tag_calculations[MAX_CACHE_ENTRIES];
-  cached_tag_entry current_cache_entry;
+  powerDef power_addr_datain_htree, power_dout_htree, power_output_drivers_at_subarray;
 
-  int valid_tag_cache_entries[MAX_CACHE_ENTRIES];
+  int number_addr_bits_mat, num_di_b_mat, num_do_b_mat, 
+      num_subarrays, number_mats, number_sense_amps_subarray,
+      number_output_drivers_subarray,
+      number_way_select_signals_mat = 0;
 
-  for(i=0;i<MAX_CACHE_ENTRIES;i++) {
-	valid_tag_cache_entries[i] = FALSE;
+  double delay_dout_horizontal_htree;
+
+  int num_v_htree_nodes, num_h_htree_nodes, num_tristate_h_htree_nodes,
+      num_mats_h_dir, num_mats_v_dir, 
+      num_act_mats_hor_dir, way_select = 0;
+  int number_addr_bits_row_decode, number_subbanks, 
+      number_subbanks_decode, number_addr_bits_routed_to_bank,
+      num_comp_b_routed_to_bank, number_data_bits_routed_to_bank, 
+      number_bits_routed_to_bank,
+      num_do_b_subbank, num_di_b_subbank;
+  
+  double length_htree_route_to_bank;
+  
+  double ver_htree_seg_len, hor_htree_seg_len, delay_addr_din_horizontal_htree;
+  powerDef power_addr_datain_horizontal_htree;
+  powerDef power_addr_datain_horizontal_htree_node, power_addr_datain_vertical_htree_node, power_dout_vertical_htree_node;
+  
+  
+  int    tagbits,  k, htree_seg_multiplier;
+  double Cbitrow_drain_cap, Cbitline;
+  double delay_route_to_bank, wordline_data, delay_subarray_output_driver, delay_final_stage_subarray_output_driver,
+         delay_sense_amp,  multisubbank_interleave_cycle_time;
+  powerDef tot_power_addr_horizontal_htree, tot_power_datain_horizontal_htree,
+           tot_power_dataout_horizontal_htree, tot_power_routing_to_bank;
+  double comparator_delay;
+  powerDef comparator_power;
+  
+  double area_all_dataramcells;
+  
+  double c_load, rd, c_intrinsic, tf, wordline_reset_delay;
+  double dummy_precharge_outrisetime;
+  
+  double r_bitline_precharge, r_bitline, bitline_restore_delay;
+  
+  double temp, dram_array_availability;
+  
+  double leakage_power_cc_inverters_sram_cell, leakage_power_access_transistors_read_write_port_sram_cell,
+         leakage_power_read_only_port_sram_cell, length_htree_segment;
+
+  double horizontal_htree_input_load, htree_output_load;
+  int    number_redundant_mats;
+  double per_bitline_read_energy;
+  double t_rcd = 0, cas_latency = 0, precharge_delay = 0;
+  double dyn_read_energy_from_closed_page;
+  double dyn_read_energy_from_open_page;
+  double leak_power_subbank_closed_page;
+  double leak_power_subbank_open_page;
+  double leak_power_request_and_reply_networks;
+  double leak_power_sense_amps_closed_page_state;
+  double leak_power_sense_amps_open_page_state;
+  double dyn_read_energy_remaining_words_in_burst;
+  
+  int    number_addr_bits_routed_to_bank_for_activate, number_addr_bits_routed_to_bank_for_read_or_write,
+         number_addr_bits_routed_to_mat_for_activate,  number_addr_bits_routed_to_mat_for_read_or_write;
+  double activate_energy, routing_to_bank_for_activate_energy, hor_htree_routing_e_for_act,
+         vertical_htree_routing_energy_for_activate, read_energy, routing_addr_to_bank_for_read_or_write_energy,
+         routing_datain_bits_to_bank_energy_for_write, horizontal_addr_htree_routing_energy_for_read_or_write, 
+         vertical_addr_htree_routing_energy_for_read_or_write, vertical_dataout_htree_routing_energy_for_read,
+         horizontal_dataout_htree_energy_for_read, write_energy, horizontal_datain_htree_routing_energy_for_write,
+         vertical_datain_htree_routing_energy_for_write, precharge_energy;
+  double delay_fa_decoder, p_to_n_sizing_r;
+  powerDef power_fa_decoder;
+  double delay_request_network, delay_inside_mat, delay_reply_network;
+  
+  unsigned int capacity_per_die = g_ip.cache_sz / NUMBER_STACKED_DIE_LAYERS;  // capacity per stacked die layer
+  
+  const TechnologyParameter::InterconnectType & wire_local       = g_tp.wire_local;
+  const TechnologyParameter::InterconnectType & wire_inside_mat  = g_tp.wire_inside_mat;
+  const TechnologyParameter::InterconnectType & wire_outside_mat = g_tp.wire_outside_mat;
+  
+  bool fully_assoc = (g_ip.fully_assoc) ? true : false;
+
+  if (fully_assoc)
+  { // fully-assocative cache
+    if (Ndwl != 1 ||            //Ndwl is fixed to 1 for FA 
+        Ndcm != 1 ||            //Ndcm is fixed to 1 for FA
+        Nspd < 1 || Nspd > 1 || //Nspd is fixed to 1 for FA
+        Ndsam_lev_1 != 1 ||     //Ndsam_lev_1 is fixed to one
+        Ndsam_lev_2 != 1 ||     //Ndsam_lev_2 is fixed to one
+        Ndbl < 2)
+    {
+      return false;
+    }
   }
 
-  rows = parameters->number_of_sets;
-  columns = 8 * parameters->block_size * parameters->data_associativity;
-  FUDGEFACTOR = parameters->fudgefactor;
-  VddPow = 4.5 / (pow (FUDGEFACTOR, (2.0 / 3.0)));
-
-  /*dt: added to simulate accessing the tags and then only accessing one data way*/
-  sequential_access_flag = parameters->sequential_access;
-  /*dt: added to simulate fast and power hungry caches which route all the ways to the edge of the
-        data array and do the way select there, instead of waiting for the way select signal to travel
-		all the way to the subarray.
-  */
-  fast_cache_access_flag = parameters->fast_access;
-  pure_sram_flag = parameters->pure_sram;
-  /* how many bits should this cache output?*/
-  BITOUT = parameters->nr_bits_out;
-
-  if (VddPow < 0.7)
-    VddPow = 0.7;
-  if (VddPow > 5.0)
-    VddPow = 5.0;
-  VbitprePow = VddPow * 3.3 / 4.5;
-  parameters->VddPow = VddPow;
-
-  /* go through possible Ndbl,Ndwl and find the smallest */
-  /* Because of area considerations, I don't think it makes sense
-     to break either dimension up larger than MAXN */
-
-  /* only try moving output drivers for set associative cache */
-  if (parameters->tag_associativity != 1) {
-    scale_init = 0.1;
+  if ((is_dram) && (!is_tag) && (Ndcm > 1))
+  {
+    return false;  // For DRAM data array, Ndcm has to be 1
   }
-  else {
-    scale_init = 1.0;
+  // If it's not an FA tag/data array, Ndwl should be at least two and Ndbl should be
+  // at least two because an array is assumed to have at least one mat. And a mat
+  // is formed out of two horizontal subarrays and two vertical subarrays
+  if((!fully_assoc)&&(Ndwl == 1 || Ndbl == 1))
+  {
+    return false;
   }
-  precalc_leakage_params(VddPow,Tkelvin,Tox, tech_length0);
-  calc_wire_parameters(parameters);
 
-  result->cycle_time = BIGNUM;
-  result->access_time = BIGNUM;
-  result->total_power.readOp.dynamic = result->total_power.readOp.leakage = 
-	  result->total_power.writeOp.dynamic = result->total_power.writeOp.leakage =BIGNUM;
-  result->best_muxover = 8 * parameters->block_size / BITOUT;
-  result->max_access_time = 0;
-  result->max_power = 0;
-  arearesult_temp.max_efficiency = 1.0 / BIGNUM;
+  tagbits = 0; // if data array, let tagbits = 0
+  if(is_tag)
+  {
+    if (g_ip.specific_tag)
+    {
+      tagbits = g_ip.tag_w;
+    }
+    else
+    {
+      if (fully_assoc)
+      {
+        tagbits = ADDRESS_BITS + EXTRA_TAG_BITS - _log2(g_ip.block_sz);
+      }
+      else
+      {
+        tagbits = ADDRESS_BITS + EXTRA_TAG_BITS - _log2(capacity_per_die) + 
+                  _log2(g_ip.tag_assoc*2 - 1) - _log2(g_ip.nbanks);
+      }
+    }
+    tagbits = (((tagbits + 3) >> 2) << 2);
+
+    if (fully_assoc)
+    {
+      num_r_subarray = (int)(capacity_per_die / (g_ip.block_sz * Ndbl));
+      num_c_subarray = (int)((tagbits * Nspd / Ndwl) + EPSILON);
+    }
+    else
+    {
+      num_r_subarray = (int)(capacity_per_die / (g_ip.nbanks *
+        g_ip.block_sz * g_ip.tag_assoc * Ndbl * Nspd) + EPSILON);
+      num_c_subarray = (int)((tagbits * g_ip.tag_assoc * Nspd / Ndwl) + EPSILON);
+    }
+    //burst_length = 1;
+  }
+  else
+  {
+    if (fully_assoc)
+    {
+      num_r_subarray = (int) (capacity_per_die) / (g_ip.block_sz * Ndbl);
+      num_c_subarray = 8 * g_ip.block_sz;
+    }
+    else
+    {
+      num_r_subarray = (int)(capacity_per_die / (g_ip.nbanks * 
+            g_ip.block_sz * g_ip.data_assoc * Ndbl * Nspd) + EPSILON);
+      num_c_subarray = (int)((8 * g_ip.block_sz * g_ip.data_assoc * Nspd / Ndwl) + EPSILON);
+    }
+    //burst_length = g_ip.block_sz * 8 / g_ip.out_w;
+  }    
+  
+  if ((!fully_assoc)&&(num_r_subarray < MINSUBARRAYROWS)) {return false;}
+  if (num_r_subarray == 0) {return false;}
+  if (num_r_subarray > MAXSUBARRAYROWS) {return false;}
+  if (num_c_subarray < MINSUBARRAYCOLS) {return false;}
+  if (num_c_subarray > MAXSUBARRAYCOLS) {return false;}
+  
+  num_subarrays = Ndwl * Ndbl;  
+  
+  // calculate wire parameters
+  if(is_tag)
+  {
+    cell.h = g_tp.sram.b_h + 2 * wire_local.pitch * (g_ip.num_rw_ports - 1 + g_ip.num_rd_ports);
+    cell.w = g_tp.sram.b_w + 2 * wire_local.pitch * (g_ip.num_rw_ports - 1 + 
+                                                     (g_ip.num_rd_ports - g_ip.num_se_rd_ports)) + 
+             wire_local.pitch * g_ip.num_se_rd_ports;
+  }
+  else
+  {
+    if(is_dram)
+    {
+      cell.h = g_tp.dram.b_h;
+      cell.w = g_tp.dram.b_w;
+    }
+    else
+    {
+      cell.h = g_tp.sram.b_h + 2 * wire_local.pitch * (g_ip.num_wr_ports + 
+               g_ip.num_rw_ports - 1 + g_ip.num_rd_ports);
+      cell.w = g_tp.sram.b_w + 2 * wire_local.pitch * (g_ip.num_rw_ports - 1 + 
+               (g_ip.num_rd_ports - g_ip.num_se_rd_ports) + 
+               g_ip.num_wr_ports) + g_tp.wire_local.pitch * g_ip.num_se_rd_ports;
+    }
+  }
+
+  double c_b_metal = cell.h * wire_local.C_per_um;
+  double c_w_metal = cell.w * wire_local.C_per_um;
+  double r_b_metal = cell.h * wire_local.R_per_um;
+  double r_w_metal = cell.w * wire_local.R_per_um;
+  double v_b_sense = 0;
+  double dram_refresh_period = 0;  // in second
+
+  if (is_dram)
+  {
+    deg_bl_muxing = 1;
+    if (ram_cell_tech_type == comm_dram)
+    {
+      Cbitline  = num_r_subarray * c_b_metal;
+      v_b_sense = (g_tp.dram_cell_Vdd/2) * g_tp.dram_cell_C / (g_tp.dram_cell_C + Cbitline);
+      if (v_b_sense < VBITSENSEMIN)
+      {
+        return false;
+      }
+      v_b_sense = VBITSENSEMIN;  // in any case, we fix sense amp input signal to a constant value
+      dram_refresh_period = 64e-3;
+    }
+    else
+    {
+      Cbitrow_drain_cap = drain_C_(g_tp.dram.cell_a_w, NCH, 1, 0, cell.w, true, true) / 2.0;
+      Cbitline  = num_r_subarray * (Cbitrow_drain_cap + c_b_metal);
+      v_b_sense = (g_tp.dram_cell_Vdd/2) * g_tp.dram_cell_C /(g_tp.dram_cell_C + Cbitline);
+      if (v_b_sense < VBITSENSEMIN)
+      {
+        return false; //Sense amp input signal is smaller that minimum allowable sense amp input signal
+      }
+      v_b_sense = VBITSENSEMIN; // in any case, we fix sense amp input signal to a constant value
+      //v_storage_worst = g_tp.dram_cell_Vdd / 2 - VBITSENSEMIN * (g_tp.dram_cell_C + Cbitline) / g_tp.dram_cell_C;
+      //dram_refresh_period = 1.1 * g_tp.dram_cell_C * v_storage_worst / g_tp.dram_cell_I_off_worst_case_len_temp;
+      dram_refresh_period = 0.9 * g_tp.dram_cell_C * VDD_STORAGE_LOSS_FRACTION_WORST * g_tp.dram_cell_Vdd / g_tp.dram_cell_I_off_worst_case_len_temp;
+    }
+  }
+  else
+  { //SRAM
+    deg_bl_muxing = Ndcm;
+    // "/ 2.0" below is due to the fact that two adjacent access transistors share drain
+    // contacts in a physical layout
+    Cbitrow_drain_cap = drain_C_(g_tp.sram.cell_a_w, NCH, 1, 0, cell.w, false, true) / 2.0;
+    Cbitline = num_r_subarray * (Cbitrow_drain_cap + c_b_metal);
+    dram_refresh_period = 0;
+  }
+
+  if (fully_assoc)
+  {
+    num_mats_h_dir = 1;
+    num_mats_v_dir = MAX(Ndbl / 2, 1);
+    number_mats = num_mats_h_dir * num_mats_v_dir;
+    num_do_b_mat = 8 * g_ip.block_sz;
+  }
+  else
+  {
+    num_mats_h_dir = Ndwl / 2;
+    num_mats_v_dir = Ndbl / 2;
+    number_mats = num_mats_h_dir * num_mats_v_dir;
+    num_do_b_mat = MAX(4 * num_c_subarray / (deg_bl_muxing * Ndsam_lev_1 * Ndsam_lev_2), 1);
+  }
+  if(!(fully_assoc&&is_tag) && (num_do_b_mat < 4))
+  {
+    return false;
+  }
+   
+
+  if (!is_tag)
+  {
+    if (is_main_mem == true)
+    {
+      num_do_b_subbank = g_ip.int_prefetch_w * g_ip.out_w;
+      deg_sa_mux_l1_non_assoc = Ndsam_lev_1;
+    }
+    else
+    {
+      if (g_ip.fast_access == true)
+      {
+        num_do_b_subbank = g_ip.out_w * g_ip.data_assoc;
+        deg_sa_mux_l1_non_assoc = Ndsam_lev_1;
+      }
+      else
+      {
+        if (!fully_assoc)
+        {
+          num_do_b_subbank = g_ip.out_w;
+          deg_sa_mux_l1_non_assoc = Ndsam_lev_1 / g_ip.data_assoc;
+          if (deg_sa_mux_l1_non_assoc < 1)
+          {
+            return false;
+          }
+        }
+        else
+        {
+          num_do_b_subbank = 8 * g_ip.block_sz;
+          deg_sa_mux_l1_non_assoc = 1;
+        }
+      }
+    }
+  }
+  else
+  {
+    num_do_b_subbank = tagbits * g_ip.tag_assoc;
+    if (fully_assoc == false && (num_do_b_mat < tagbits))
+    {
+      return false;
+    }
+    deg_sa_mux_l1_non_assoc = Ndsam_lev_1;
+    //num_do_b_mat = g_ip.tag_assoc / num_mats_h_dir;
+  }
+
+  if (fully_assoc)
+  {
+    num_act_mats_hor_dir = 1;
+  }
+  else
+  {
+    num_act_mats_hor_dir = num_do_b_subbank / num_do_b_mat;
+    if (num_act_mats_hor_dir == 0)
+    {
+      return false;
+    }
+  }
+
+    
+  if(is_tag)
+  {
+    if(fully_assoc)
+    {
+      num_do_b_mat = 0;
+      num_do_b_subbank = 0;
+    }
+    else
+    {
+      num_do_b_mat = g_ip.tag_assoc / num_act_mats_hor_dir;
+      num_do_b_subbank = num_act_mats_hor_dir * num_do_b_mat;
+    }
+  }
+
+  if ((g_ip.is_cache == false && is_main_mem == true) || (PAGE_MODE == 1 && is_dram))
+  {
+    if (num_act_mats_hor_dir * num_do_b_mat * Ndsam_lev_1 * Ndsam_lev_2 != g_ip.page_sz_bits)
+    {
+      return false;
+    }
+  }
+
+  if (is_tag == false && g_ip.is_cache == true &&
+      num_act_mats_hor_dir*num_do_b_mat*Ndsam_lev_1*Ndsam_lev_2 < (g_ip.out_w * g_ip.burst_len * g_ip.data_assoc))
+  {
+    return false;
+  }
+
+  if (num_act_mats_hor_dir > num_mats_h_dir) 
+  {
+    return false;
+  }
+
+  if(!is_tag)
+  {
+    if(g_ip.fast_access == true)
+    {
+      num_di_b_mat = num_do_b_mat / g_ip.data_assoc;
+    }
+    else
+    {
+      num_di_b_mat = num_do_b_mat;
+    }
+  }
+  else
+  {
+    num_di_b_mat = tagbits;
+  }
+  num_di_b_subbank = num_di_b_mat * num_act_mats_hor_dir;
+
+  if (fully_assoc)
+  {
+    number_addr_bits_row_decode = 0;
+  }
+  else
+  {
+    number_addr_bits_row_decode = _log2(num_r_subarray);
+  }
+
+  number_subbanks        = number_mats / num_act_mats_hor_dir;
+  number_subbanks_decode = _log2(number_subbanks);
+
+  if (is_dram && is_main_mem)
+  {
+    number_addr_bits_mat = MAX((unsigned int) number_addr_bits_row_decode,
+                               _log2(deg_bl_muxing) + _log2(deg_sa_mux_l1_non_assoc) + _log2(Ndsam_lev_2));
+  }
+  else
+  {
+    number_addr_bits_mat = number_addr_bits_row_decode + _log2(deg_bl_muxing) +
+                           _log2(deg_sa_mux_l1_non_assoc) + _log2(Ndsam_lev_2);
+  }
+  number_addr_bits_routed_to_bank = number_addr_bits_mat + number_subbanks_decode;
+  num_comp_b_routed_to_bank = 0;
+  
+  if((!is_tag)&&(!pure_ram))
+  {
+    num_comp_b_routed_to_bank = g_ip.data_assoc;
+  }
+
+  if(is_tag)
+  {
+    number_data_bits_routed_to_bank = tagbits + g_ip.data_assoc;//input to tag
+    //array= tagbits, output from tag array = g_ip.data_assoc number of comparator
+    //bits for set-associative cache. g_ip.data_assoc = 1 valid bit for direct-mapped
+    //cache or sequential-access cache.
+  }
+  else
+  {
+    number_data_bits_routed_to_bank = g_ip.out_w * 2;//datain and dataout
+  }
+  number_bits_routed_to_bank = number_addr_bits_routed_to_bank + number_data_bits_routed_to_bank +
+                               num_comp_b_routed_to_bank;
+  
+  number_sense_amps_subarray = num_c_subarray / deg_bl_muxing;
+  number_output_drivers_subarray = number_sense_amps_subarray / (Ndsam_lev_1 * Ndsam_lev_2);
+  if ((!is_tag) && (g_ip.data_assoc > 1) && (!g_ip.fast_access))
+  {
+    way_select = g_ip.data_assoc;
+    number_way_select_signals_mat = g_ip.data_assoc;
+  }    
+  
+  if (is_dram)
+  {
+    c_wl_drv_ld = (gate_C_pass(g_tp.dram.cell_a_w, g_tp.dram.b_w, true, true) + c_w_metal) * num_c_subarray;
+  }
+  else
+  {
+    c_wl_drv_ld = (gate_C_pass(g_tp.sram.cell_a_w, (g_tp.sram.b_w-2*g_tp.sram.cell_a_w)/2.0, false, true)*2 +
+                   c_w_metal) * num_c_subarray;
+  }
+
+  // add ECC adjustment to all data signals that traverse on H-trees.
+  if (add_ecc_b_ == true)
+  {
+    num_do_b_mat += (int) (ceil(num_do_b_mat / num_bits_per_ecc_b_));
+    num_di_b_mat += (int) (ceil(num_di_b_mat / num_bits_per_ecc_b_));
+    number_data_bits_routed_to_bank += (int) (ceil(number_data_bits_routed_to_bank / num_bits_per_ecc_b_));
+    number_bits_routed_to_bank      += (int) (ceil(number_bits_routed_to_bank  / num_bits_per_ecc_b_));
+    num_di_b_subbank += (int) (ceil(num_di_b_subbank / num_bits_per_ecc_b_));
+    num_do_b_subbank += (int) (ceil(num_do_b_subbank / num_bits_per_ecc_b_));
+  }
+  
+  double refresh_power = 0;
+  hor_htree_routing_e_for_act = 0;
+  horizontal_addr_htree_routing_energy_for_read_or_write = 0;
+  horizontal_datain_htree_routing_energy_for_write = 0;
+  horizontal_dataout_htree_energy_for_read = 0;
+  vertical_htree_routing_energy_for_activate = 0;
+  vertical_addr_htree_routing_energy_for_read_or_write = 0;
+  vertical_datain_htree_routing_energy_for_write = 0;
+
+  inrisetime = 0;
+  rd = tr_R_on(1, NCH, 1, is_dram);
+  p_to_n_sizing_r = pmos_to_nmos_sz_ratio(is_dram);
+  c_load = gate_C(1 + p_to_n_sizing_r, 0.0, is_dram);
+  tf = rd * c_load;
+  g_tp.kinv = horowitz(inrisetime, tf, 0.5, 0.5, RISE);
+  double KLOAD = 1;
+  c_load = KLOAD * (drain_C_(1, NCH, 1, 0, g_tp.cell_h_def, is_dram) + 
+                    drain_C_(p_to_n_sizing_r, PCH, 1, 0, g_tp.cell_h_def, is_dram) +
+                    gate_C(4 * (1 + p_to_n_sizing_r), 0.0, is_dram));
+  tf = rd * c_load;
+  g_tp.FO4 = horowitz(inrisetime, tf, 0.5, 0.5, RISE);
+  c_load = KLOAD * (drain_C_(1, NCH, 1, 0, g_tp.cell_h_def, is_dram) + 
+                    drain_C_(p_to_n_sizing_r, PCH, 1, 0, g_tp.cell_h_def, is_dram) +
+                    gate_C(1 * (1 + p_to_n_sizing_r), 0.0, is_dram));
+  tf = rd * c_load;
+  g_tp.unit_len_wire_del = g_tp.wire_inside_mat.R_per_um * g_tp.wire_inside_mat.C_per_um / 2;
+  //normalized_unit_length_wire_delay = unit_length_wire_delay / FO4;
+  //FO1 = horowitz(inrisetime, tf, 0.5, 0.5, RISE);
+   
+  Area subarray;
+  Area cam_cell;
+
+  if(fully_assoc && is_tag)
+  {
+    cam_cell              = subarray.set_area_fa_subarray(tagbits, num_r_subarray);
+    area_all_dataramcells = cam_cell.get_h() * cam_cell.get_w() * num_r_subarray * num_c_subarray *
+                            num_subarrays * g_ip.nbanks;
+  }
+  else
+  {
+    subarray.set_subarraymem_area(num_r_subarray, num_c_subarray, cell, ram_cell_tech_type);
+    area_all_dataramcells = cell.get_h() * cell.get_w() * num_r_subarray * num_c_subarray *
+                            num_subarrays * g_ip.nbanks;
+  }
+
+  // num_v_htree_nodes = 1 when num_mats_v_dir = 1 or 2
+  num_v_htree_nodes = (num_mats_v_dir <= 1) ? 1 : _log2(num_mats_v_dir / 2) + 1;
+  num_h_htree_nodes = _log2(num_mats_h_dir) + 1;
+  num_tristate_h_htree_nodes = num_h_htree_nodes - (_log2(num_act_mats_hor_dir) + 1);
+
+  Dout_htree_node subarray_out_htree_node(subarray, is_dram);
+
+  double C_ld_bit_mux_dec_out      = 0;  // c_load_bit_mux_decoder_output
+  double C_ld_sa_mux_lev_1_dec_out = 0;  // c_load_senseamp_mux_decoder_output
+  double C_ld_sa_mux_lev_2_dec_out = 0;  // c_load_senseamp_mux_decoder_output
+  if (deg_bl_muxing > 1)
+  {
+    C_ld_bit_mux_dec_out =
+      (2 * 4 * num_c_subarray / deg_bl_muxing)*gate_C(g_tp.w_nmos_b_mux, 0, is_dram) +  // 4 subarrays per mat, 2 transistor per cell
+      2*num_c_subarray*wire_inside_mat.C_per_um*cell.get_w(); 
+  }
+  
+  if (Ndsam_lev_1 > 1)
+  {
+    C_ld_sa_mux_lev_1_dec_out =
+      (4 * number_sense_amps_subarray / Ndsam_lev_1)*gate_C(g_tp.w_nmos_sa_mux, 0, is_dram) +
+      2*num_c_subarray*wire_inside_mat.C_per_um*cell.get_w();
+  }
+  if (Ndsam_lev_2 > 1)
+  {
+    C_ld_sa_mux_lev_2_dec_out =
+      (4 * number_sense_amps_subarray / (Ndsam_lev_1*Ndsam_lev_2))*gate_C(g_tp.w_nmos_sa_mux, 0, is_dram) +
+      2*num_c_subarray*wire_inside_mat.C_per_um*cell.get_w();
+  }
+
+  R_wire_wl_drv_out      = num_c_subarray * r_w_metal;
+  R_wire_bit_mux_dec_out = 2 * num_c_subarray * wire_inside_mat.R_per_um * cell.w / 2;
+  R_wire_sa_mux_dec_out  = 2 * num_c_subarray * wire_inside_mat.R_per_um * cell.w / 2;
+
+
+  // initialize row decoder, bitline mux decoder, and senseamp mux decoder circuits
+  int num_dec_signals = (fully_assoc) ? 1 : num_r_subarray;
+  Decoder _row_dec(num_dec_signals, false, c_wl_drv_ld, R_wire_wl_drv_out);
+  if (fully_assoc && (!is_tag))
+  {
+    _row_dec.exist = true;
+  }
+  Decoder _bit_mux_dec(deg_bl_muxing, false, C_ld_bit_mux_dec_out, R_wire_bit_mux_dec_out);
+  Decoder _senseamp_mux_lev_1_dec(deg_sa_mux_l1_non_assoc, way_select ? true : false,
+                                  C_ld_sa_mux_lev_1_dec_out, R_wire_sa_mux_dec_out);
+  Decoder _senseamp_mux_lev_2_dec(Ndsam_lev_2, false, C_ld_sa_mux_lev_2_dec_out, R_wire_sa_mux_dec_out);
+
+  // compute transistor widths in row decoder, bitline mux decoder, and senseamp mux decoder circuits
+  _row_dec.compute_widths(fully_assoc, is_dram, true);
+  _bit_mux_dec.compute_widths(fully_assoc, is_dram, false);
+  _senseamp_mux_lev_1_dec.compute_widths(fully_assoc, is_dram, false);
+  _senseamp_mux_lev_2_dec.compute_widths(fully_assoc, is_dram, false);
+  
+
+  PredecoderBlock r_predec_blk1, r_predec_blk2;
+  PredecoderBlock b_mux_predec_blk1, b_mux_predec_blk2;
+  PredecoderBlock senseamp_mux_predec_blk1, senseamp_mux_predec_blk2;
+  PredecoderBlock senseamp_mux_lev_1_predec_blk1, senseamp_mux_lev_2_predec_blk1;
+  PredecoderBlock senseamp_mux_lev_1_predec_blk2, senseamp_mux_lev_2_predec_blk2;
+  PredecoderBlock dummy_way_sel_predec_blk1, dummy_way_sel_predec_blk2;
+
+  // initialize row, bitline-mux, and senseamp-mux predecode blocks
+  PredecoderBlock::initialize(
+      (fully_assoc) ? 1 : num_r_subarray,
+      r_predec_blk1, r_predec_blk2, _row_dec,
+      2 * num_r_subarray * wire_inside_mat.C_per_um * cell.get_h(),  // C_wire_r_predec_blk_out
+      num_r_subarray * wire_inside_mat.R_per_um * cell.get_h() / 2,  // R_wire_r_predec_blk_out
+      4,                                                             // because of wordline decoders in 4 subarrays
+      is_dram);
+  PredecoderBlock::initialize(
+      deg_bl_muxing,
+      b_mux_predec_blk1, b_mux_predec_blk2, _bit_mux_dec,
+      0,                                                             // C_wire_b_mux_predec_blk_out
+      0,                                                             // R_wire_b_mux_predec_blk_out
+      1,                                                             // num_dec_gates_driven_per_perdec_out
+      is_dram);
+  PredecoderBlock::initialize(
+      deg_sa_mux_l1_non_assoc,
+      senseamp_mux_lev_1_predec_blk1, senseamp_mux_lev_1_predec_blk2, _senseamp_mux_lev_1_dec,
+      0,                                                             // C_wire_senseamp_mux_predec_blk_out
+      0,                                                             // R_wire_senseamp_mux_predec_blk_out
+      1,                                                             // num_dec_gates_driven_per_perdec_out
+      is_dram);
+  PredecoderBlock::initialize(
+      1, 
+      dummy_way_sel_predec_blk1, dummy_way_sel_predec_blk2, _senseamp_mux_lev_1_dec,
+      0,
+      0,
+      0,
+      is_dram);
+  PredecoderBlock::initialize(
+      Ndsam_lev_2,
+      senseamp_mux_lev_2_predec_blk1, senseamp_mux_lev_2_predec_blk2, _senseamp_mux_lev_2_dec,
+      0,
+      0,
+      1,                                                             // num_dec_gates_driven_per_perdec_out
+      is_dram);
+
+
+  // compute widths of transistors in row, bitline mux, and senseamp mux predecode blocks
+  r_predec_blk1.compute_widths();
+  r_predec_blk2.compute_widths();
+  b_mux_predec_blk1.compute_widths();
+  b_mux_predec_blk2.compute_widths();
+  senseamp_mux_lev_1_predec_blk1.compute_widths();
+  senseamp_mux_lev_1_predec_blk2.compute_widths();
+  senseamp_mux_lev_2_predec_blk1.compute_widths();
+  senseamp_mux_lev_2_predec_blk2.compute_widths();
+
+
+  PredecoderBlockDriver r_predec_blk_drv1, r_predec_blk_drv2;
+  PredecoderBlockDriver b_mux_predec_blk_drv1, b_mux_predec_blk_drv2;
+  PredecoderBlockDriver senseamp_mux_lev_1_predec_blk_drv1, senseamp_mux_lev_1_predec_blk_drv2;
+  PredecoderBlockDriver senseamp_mux_lev_2_predec_blk_drv1, senseamp_mux_lev_2_predec_blk_drv2;
+  PredecoderBlockDriver way_sel_drv1, dummy_way_sel_predec_blk_drv2;
+
+  // initialize row, bitline mux, and senseamp mux predecode block drivers
+  // these drivers are at the leaves of the vertical H-trees of the array
+  PredecoderBlockDriver::initialize(
+      (fully_assoc) ? 1 : num_r_subarray, 0, 0,
+      r_predec_blk_drv1, r_predec_blk_drv2,
+      r_predec_blk1, r_predec_blk2,
+      _row_dec, is_dram);
+  PredecoderBlockDriver::initialize(
+      deg_bl_muxing, 0, 0,
+      b_mux_predec_blk_drv1, b_mux_predec_blk_drv2,
+      b_mux_predec_blk1, b_mux_predec_blk2,
+      _bit_mux_dec, is_dram);
+  PredecoderBlockDriver::initialize(
+      deg_sa_mux_l1_non_assoc, 0, 0,
+      senseamp_mux_lev_1_predec_blk_drv1, senseamp_mux_lev_1_predec_blk_drv2,
+      senseamp_mux_lev_1_predec_blk1,     senseamp_mux_lev_1_predec_blk2,
+      _senseamp_mux_lev_1_dec, is_dram);
+  PredecoderBlockDriver::initialize(
+      1, 1, way_select,
+      way_sel_drv1, dummy_way_sel_predec_blk_drv2,
+      dummy_way_sel_predec_blk1, dummy_way_sel_predec_blk2,
+      _senseamp_mux_lev_1_dec, is_dram);
+  PredecoderBlockDriver::initialize(
+      Ndsam_lev_2, 0, 0,
+      senseamp_mux_lev_2_predec_blk_drv1, senseamp_mux_lev_2_predec_blk_drv2,
+      senseamp_mux_lev_2_predec_blk1,     senseamp_mux_lev_2_predec_blk2,
+      _senseamp_mux_lev_2_dec, is_dram);
+
+  // compute widths of transistors in row, bitline mux, and senseamp mux predecode block drivers
+  // as well as way-select drivers
+  r_predec_blk_drv1.compute_widths(r_predec_blk1, _row_dec, 0);
+  r_predec_blk_drv2.compute_widths(r_predec_blk2, _row_dec, 0);
+  b_mux_predec_blk_drv1.compute_widths(b_mux_predec_blk1, _bit_mux_dec, 0);
+  b_mux_predec_blk_drv2.compute_widths(b_mux_predec_blk2, _bit_mux_dec, 0);
+  senseamp_mux_lev_1_predec_blk_drv1.compute_widths(senseamp_mux_lev_1_predec_blk1, _senseamp_mux_lev_1_dec, 0);
+  senseamp_mux_lev_2_predec_blk_drv2.compute_widths(senseamp_mux_lev_1_predec_blk2, _senseamp_mux_lev_1_dec, 0);
+  way_sel_drv1.compute_widths(dummy_way_sel_predec_blk1, _senseamp_mux_lev_1_dec, way_select);
+  senseamp_mux_lev_1_predec_blk_drv1.compute_widths(senseamp_mux_lev_2_predec_blk1, _senseamp_mux_lev_2_dec, 0);
+  senseamp_mux_lev_1_predec_blk_drv2.compute_widths(senseamp_mux_lev_2_predec_blk2, _senseamp_mux_lev_2_dec, 0);
+
+
+  Driver bl_precharge_eq_drv;
+  bl_precharge_eq_drv.c_gate_load = num_c_subarray *
+    gate_C(2 * g_tp.w_pmos_bl_precharge + g_tp.w_pmos_bl_eq, 0, is_dram, false, false);
+  bl_precharge_eq_drv.c_wire_load = num_c_subarray * cell.w * wire_outside_mat.C_per_um;
+  bl_precharge_eq_drv.r_wire_load = num_c_subarray * cell.w * wire_outside_mat.R_per_um;
+  // compute widths of transistors in driver that drives bitline precharge and equalization transistors
+  bl_precharge_eq_drv.compute_widths(is_dram);
+
+  // calculate area of a mat
+  Area mat = Area::area_mat(
+      fully_assoc,
+      is_tag,
+      tagbits,
+      num_r_subarray,
+      num_c_subarray, 
+      num_subarrays,
+      deg_bl_muxing,
+      deg_sa_mux_l1_non_assoc,
+      Ndsam_lev_1,
+      Ndsam_lev_2,
+      number_addr_bits_mat,
+      num_di_b_mat,
+      num_do_b_mat,
+      number_way_select_signals_mat,
+      r_predec_blk1,
+      r_predec_blk2,
+      b_mux_predec_blk1,
+      b_mux_predec_blk2, 
+      senseamp_mux_lev_1_predec_blk1,
+      senseamp_mux_lev_1_predec_blk2,
+      senseamp_mux_lev_2_predec_blk1,
+      senseamp_mux_lev_2_predec_blk2,
+      dummy_way_sel_predec_blk1,
+      _row_dec,
+      _bit_mux_dec,
+      _senseamp_mux_lev_1_dec,
+      _senseamp_mux_lev_2_dec,
+      r_predec_blk_drv1,
+      r_predec_blk_drv2,
+      b_mux_predec_blk_drv1,
+      b_mux_predec_blk_drv2,
+      senseamp_mux_lev_1_predec_blk_drv1,
+      senseamp_mux_lev_1_predec_blk_drv2,
+      senseamp_mux_lev_2_predec_blk_drv1,
+      senseamp_mux_lev_2_predec_blk_drv2,
+      way_sel_drv1,
+      subarray_out_htree_node,
+      cell,
+      is_dram,
+      ram_cell_tech_type);
+  hor_htree_seg_len = mat.w / 2;
+  ver_htree_seg_len = mat.h / 2;
+
+
+  AddrDatainHtreeNode hor_addr_di_htree_node(num_h_htree_nodes, hor_htree_seg_len, is_dram);
+  AddrDatainHtreeNode ver_addr_di_htree_node(num_v_htree_nodes, ver_htree_seg_len, is_dram);
+  DataoutHtreeNode do_htree_node(
+      num_v_htree_nodes,
+      ver_addr_di_htree_node.length_wire_htree_node,
+      is_dram);
+  AddrDatainHtreeAtMatInterval hor_addr_di_htree_at_mat_interval(
+      2 * hor_htree_seg_len,
+      num_h_htree_nodes,
+      is_dram);
+  AddrDatainHtreeAtMatInterval ver_addr_di_htree_at_mat_interval(
+      2 * ver_htree_seg_len,
+      num_v_htree_nodes,
+      is_dram);
+
+  if (g_ip.rpters_in_htree == false)
+  {
+    hor_addr_di_htree_node.initialize();
+    hor_addr_di_htree_node.compute_widths();
+    hor_addr_di_htree_node.compute_areas();
+    ver_addr_di_htree_node.initialize();
+    ver_addr_di_htree_node.compute_widths();
+    ver_addr_di_htree_node.compute_areas();
+    do_htree_node.initialize();
+    do_htree_node.compute_widths();
+    do_htree_node.compute_areas();
+  }
+  else
+  {
+    hor_addr_di_htree_at_mat_interval.compute_area_drivers(bank_htree_sizing);
+    ver_addr_di_htree_at_mat_interval.compute_area_drivers(bank_htree_sizing);
+  }
+
+
+  // calculate area of a bank
+  Area bank = Area::area_single_bank(
+      num_r_subarray,
+      is_tag,
+      num_h_htree_nodes,
+      num_v_htree_nodes, 
+      num_tristate_h_htree_nodes,
+      num_mats_h_dir, 
+      num_mats_v_dir, 
+      num_act_mats_hor_dir,
+      number_addr_bits_mat,
+      number_way_select_signals_mat,
+      tagbits, 
+      num_di_b_mat,
+      num_do_b_mat,
+      num_di_b_subbank,
+      num_do_b_subbank,
+      hor_addr_di_htree_node,
+      ver_addr_di_htree_node,
+      do_htree_node,
+      hor_addr_di_htree_at_mat_interval,
+      ver_addr_di_htree_at_mat_interval,
+      bank_htree_sizing,
+      r_predec_blk1, 
+      r_predec_blk2,
+      b_mux_predec_blk1, 
+      b_mux_predec_blk2, 
+      senseamp_mux_lev_1_predec_blk1,
+      senseamp_mux_lev_1_predec_blk2, 
+      senseamp_mux_lev_2_predec_blk1,
+      senseamp_mux_lev_2_predec_blk2, 
+      _row_dec,
+      _bit_mux_dec,
+      _senseamp_mux_lev_1_dec,
+      _senseamp_mux_lev_2_dec,
+      r_predec_blk_drv1,
+      r_predec_blk_drv2,
+      b_mux_predec_blk_drv1,
+      b_mux_predec_blk_drv2,
+      senseamp_mux_lev_1_predec_blk_drv1, 
+      senseamp_mux_lev_1_predec_blk_drv2,
+      senseamp_mux_lev_2_predec_blk_drv1, 
+      senseamp_mux_lev_2_predec_blk_drv2,
+      &tot_power, 
+      &tot_power_row_predecode_block_drivers, 
+      &tot_power_bit_mux_predecode_block_drivers, 
+      &tot_power_senseamp_mux_lev_1_predecode_block_drivers,
+      &tot_power_senseamp_mux_lev_2_predecode_block_drivers,
+      &tot_power_row_predecode_blocks,
+      &tot_power_bit_mux_predecode_blocks,
+      &tot_power_senseamp_mux_lev_1_predecode_blocks,
+      &tot_power_senseamp_mux_lev_2_predecode_blocks,
+      &tot_power_row_decoders,
+      &tot_power_bit_mux_decoders,
+      &tot_power_senseamp_mux_lev_1_decoders,
+      &tot_power_senseamp_mux_lev_2_decoders,
+      mat);
+
+  // Calculate area of all banks
+  Area all_banks = Area::area_all_banks(
+      g_ip.nbanks,
+      bank.h,
+      bank.w, 
+      number_bits_routed_to_bank,
+      &length_htree_route_to_bank,
+      num_mats_v_dir,
+      is_main_mem);
+  
+  number_redundant_mats = g_ip.nbanks * number_mats / NUMBER_MATS_PER_REDUNDANT_MAT;
+  if (number_redundant_mats > 0)
+  {
+    // Arrange redundant mats horizontally
+    all_banks.h = (all_banks.get_area() + mat.get_area()*number_redundant_mats) / all_banks.w;
+  }
+
+ 
+  inrisetime = 0;
+  horizontal_htree_input_load = gate_C(bank_htree_sizing.nand2_buffer_width_n[0] +
+      bank_htree_sizing.nand2_buffer_width_p[0], 0, is_dram);
+  delay_route_to_bank = 0;
+  
+  if (is_tag == false)
+  {
+    length_htree_route_to_bank += LENGTH_INTERCONNECT_FROM_BANK_TO_CROSSBAR;
+  }
+
+  pair<double, double> tmp_pair;
+
+  powerDef power_routing_to_bank;
+
+  tmp_pair = arr_edge_to_bank_edge_htree_sizing.compute_delays(
+      inrisetime,
+      length_htree_route_to_bank,
+      horizontal_htree_input_load,
+      is_dram,
+      power_routing_to_bank);
+
+  outrisetime         = tmp_pair.first;
+  delay_route_to_bank = tmp_pair.second;
+
+  double c_crossbar_output_line_load =
+    gate_C(arr_edge_to_bank_edge_htree_sizing.opt_sizing * g_tp.min_w_nmos_ + 
+           p_to_n_sizing_r * arr_edge_to_bank_edge_htree_sizing.opt_sizing * g_tp.min_w_nmos_, 0, is_dram);
+
+  Crossbar crossbar(
+      NUMBER_INPUT_PORTS_CROSSBAR,
+      NUMBER_OUTPUT_PORTS_CROSSBAR,
+      NUMBER_SIGNALS_PER_PORT_CROSSBAR,
+      c_crossbar_output_line_load,
+      is_dram);
+  
+  if ((IS_CROSSBAR)&&(!is_tag))
+  {
+    crossbar.compute_widths();
+    inrisetime  = 0;
+    outrisetime = crossbar.compute_delay(inrisetime);
+    crossbar.compute_area();
+  }
+  
+  delay_route_to_bank += g_tp.FO4 * (NUMBER_STACKED_DIE_LAYERS - 1) + crossbar.delay;
+
+  
+  inrisetime = 0;
+  if (g_ip.rpters_in_htree == false)
+  {
+    tmp_pair = hor_addr_di_htree_node.compute_delays(inrisetime);
+    outrisetime = tmp_pair.first;
+    delay_addr_din_horizontal_htree = tmp_pair.second;
+    tmp_pair = ver_addr_di_htree_node.compute_delays(inrisetime);
+    outrisetime = tmp_pair.first;
+    delay_addr_din_vertical_htree = tmp_pair.second;
+  }
+  else
+  {    
+    htree_output_load = gate_C(bank_htree_sizing.nand2_buffer_width_n[0] +
+                               bank_htree_sizing.nand2_buffer_width_p[0], 0, is_dram);
+    tmp_pair = hor_addr_di_htree_at_mat_interval.compute_delay_addr_datain(
+        htree_output_load, 1, inrisetime, bank_htree_sizing);
+    outrisetime = tmp_pair.first;
+    delay_addr_din_horizontal_htree = tmp_pair.second;
+    inrisetime = 0;
+    htree_output_load = gate_C(g_tp.min_w_nmos_ + p_to_n_sizing_r * g_tp.min_w_nmos_, 0, is_dram);
+
+    tmp_pair = ver_addr_di_htree_at_mat_interval.compute_delay_addr_datain(
+        htree_output_load, g_ip.broadcast_addr_din_over_ver_htrees, inrisetime, bank_htree_sizing);
+    outrisetime = tmp_pair.first;
+    delay_addr_din_vertical_htree = tmp_pair.second;
+    inrisetime = 0;
+  }
+
+  delay_dout_horizontal_htree = delay_addr_din_horizontal_htree;
+
+  if ((fully_assoc)&&(is_tag))
+  { // fully-associative cache tag decoder delay
+    delay_fa_tag(
+        tagbits,
+        Ndbl,
+        num_r_subarray,
+        &delay_fa_decoder,
+        &power_fa_decoder,
+        cam_cell,
+        is_dram,
+        cell);
+  }
+
+  pair<double, double> tmp_pair1, tmp_pair2;
+  tmp_pair1 = r_predec_blk_drv1.compute_delays(inrisetime, inrisetime);
+  tmp_pair1 = r_predec_blk1.compute_delays(tmp_pair1);
+  tmp_pair2 = r_predec_blk_drv2.compute_delays(inrisetime, inrisetime);
+  tmp_pair2 = r_predec_blk2.compute_delays(tmp_pair2);
+  tmp_pair1 = get_max_delay_before_decoder(
+      r_predec_blk_drv1, r_predec_blk1, tmp_pair1,
+      r_predec_blk_drv2, r_predec_blk2, tmp_pair2);
+  max_delay_before_row_decoder = tmp_pair1.first + delay_route_to_bank +
+                                 delay_addr_din_horizontal_htree + delay_addr_din_vertical_htree;
+  row_dec_inrisetime           = tmp_pair1.second;
+
+  tmp_pair1 = b_mux_predec_blk_drv1.compute_delays(inrisetime, inrisetime);
+  tmp_pair1 = b_mux_predec_blk1.compute_delays(tmp_pair1);
+  tmp_pair2 = b_mux_predec_blk_drv2.compute_delays(inrisetime, inrisetime);
+  tmp_pair2 = b_mux_predec_blk2.compute_delays(tmp_pair2);
+  tmp_pair1 = get_max_delay_before_decoder(
+      b_mux_predec_blk_drv1, b_mux_predec_blk1, tmp_pair1,
+      b_mux_predec_blk_drv2, b_mux_predec_blk2, tmp_pair2);
+  max_delay_before_bit_mux_decoder = tmp_pair1.first + delay_route_to_bank +
+                                    delay_addr_din_horizontal_htree + delay_addr_din_vertical_htree;
+  bit_mux_dec_inrisetime           = tmp_pair1.second;
+  
+  
+  tmp_pair1 = senseamp_mux_lev_1_predec_blk_drv1.compute_delays(inrisetime, inrisetime);
+  tmp_pair1 = senseamp_mux_lev_1_predec_blk1.compute_delays(tmp_pair1);
+  tmp_pair2 = senseamp_mux_lev_1_predec_blk_drv2.compute_delays(inrisetime, inrisetime);
+  tmp_pair2 = senseamp_mux_lev_1_predec_blk2.compute_delays(tmp_pair2);
+  tmp_pair1 = get_max_delay_before_decoder(
+      senseamp_mux_lev_1_predec_blk_drv1, senseamp_mux_lev_1_predec_blk1, tmp_pair1,
+      senseamp_mux_lev_1_predec_blk_drv2, senseamp_mux_lev_1_predec_blk2, tmp_pair2);
+  max_delay_before_senseamp_mux_lev_1_decoder = tmp_pair1.first + delay_route_to_bank +
+                                                delay_addr_din_horizontal_htree + delay_addr_din_vertical_htree;
+  senseamp_mux_lev_1_dec_inrisetime           = tmp_pair1.second;
+
+  tmp_pair1 = senseamp_mux_lev_2_predec_blk_drv1.compute_delays(inrisetime, inrisetime);
+  tmp_pair1 = senseamp_mux_lev_2_predec_blk1.compute_delays(tmp_pair1);
+  tmp_pair2 = senseamp_mux_lev_2_predec_blk_drv2.compute_delays(inrisetime, inrisetime);
+  tmp_pair2 = senseamp_mux_lev_2_predec_blk2.compute_delays(tmp_pair2);
+  tmp_pair1 = get_max_delay_before_decoder(
+      senseamp_mux_lev_2_predec_blk_drv1, senseamp_mux_lev_2_predec_blk1, tmp_pair1,
+      senseamp_mux_lev_2_predec_blk_drv2, senseamp_mux_lev_2_predec_blk2, tmp_pair2);
+  max_delay_before_senseamp_mux_lev_2_decoder = tmp_pair1.first + delay_route_to_bank +
+                                                delay_addr_din_horizontal_htree + delay_addr_din_vertical_htree;
+  senseamp_mux_lev_2_dec_inrisetime           = tmp_pair1.second;
+
+
+  row_dec_outrisetime = _row_dec.compute_delays(row_dec_inrisetime, cell, is_dram, true);
+  bit_mux_dec_outrisetime = _bit_mux_dec.compute_delays(bit_mux_dec_inrisetime, cell, is_dram, false);
+  senseamp_mux_lev_1_dec_outrisetime = _senseamp_mux_lev_1_dec.compute_delays(senseamp_mux_lev_1_dec_inrisetime, cell, is_dram, false);
+  senseamp_mux_lev_2_dec_outrisetime = _senseamp_mux_lev_2_dec.compute_delays(senseamp_mux_lev_2_dec_inrisetime, cell, is_dram, false);
+ 
+  Tpre = max_delay_before_row_decoder + _row_dec.delay;
+  
+  leakage_power_cc_inverters_sram_cell = 0;
+  leakage_power_access_transistors_read_write_port_sram_cell = 0;
+  leakage_power_read_only_port_sram_cell = 0;
+  delay_bitline = bitline_delay(
+      num_r_subarray,
+      num_c_subarray,
+      num_subarrays, 
+      row_dec_outrisetime,
+      &outrisetime,
+      &bitline_data_power,
+      &per_bitline_read_energy,
+      deg_bl_muxing,
+      Ndsam_lev_1 * Ndsam_lev_2,
+      num_act_mats_hor_dir,
+      &writeback_delay, 
+      g_ip.num_rw_ports,
+      g_ip.num_rd_ports,
+      g_ip.num_wr_ports,
+      cell,
+      is_dram,
+      c_b_metal,
+      r_b_metal,
+      v_b_sense,
+      ram_cell_tech_type);
+  
+  wordline_data = _row_dec.delay;
+  inrisetime    = outrisetime;
+
+  delay_sense_amplifier(
+      num_c_subarray,
+      g_ip.num_rw_ports,
+      g_ip.num_rd_ports,
+      inrisetime,
+      &outrisetime,
+      &sense_amp_data_power, 
+      deg_bl_muxing,
+      number_mats,
+      num_act_mats_hor_dir, 
+      &delay_sense_amp,
+      &leak_power_sense_amps_closed_page_state,
+      &leak_power_sense_amps_open_page_state,
+      cell,
+      is_dram,
+      is_tag,
+      v_b_sense);
+  inrisetime = outrisetime;
+  delay_output_driver_at_subarray(
+      deg_bl_muxing,
+      Ndsam_lev_1,
+      Ndsam_lev_2,
+      g_ip.num_rw_ports,
+      g_ip.num_rd_ports,
+      inrisetime,
+      &outrisetime,
+      &power_output_drivers_at_subarray, 
+      subarray_out_htree_node,
+      number_mats,
+      &delay_subarray_output_driver,
+      &delay_final_stage_subarray_output_driver,
+      is_dram,
+      cell);
+
+  if (g_ip.rpters_in_htree == false)
+  {
+    tmp_pair                  = do_htree_node.compute_delays(inrisetime);
+    outrisetime               = tmp_pair.first;
+    delay_dout_vertical_htree = tmp_pair.second;
+    power_dout_htree          = do_htree_node.power;
+    inrisetime                = 0;
+  }
+  else
+  {
+    tmp_pair    = ver_addr_di_htree_at_mat_interval.compute_delay_dataout_ver(inrisetime, bank_htree_sizing);
+    outrisetime = tmp_pair.first;
+    delay_dout_vertical_htree = tmp_pair.second;
+    inrisetime  = 0;
+  }
+  
+  delay_data_access_row_path = 
+    max_delay_before_row_decoder + _row_dec.delay + delay_bitline + 
+    delay_sense_amp + delay_subarray_output_driver + delay_dout_vertical_htree + 
+    delay_dout_horizontal_htree + delay_route_to_bank;
+  delay_data_access_col_path = max_delay_before_bit_mux_decoder + _bit_mux_dec.delay +  delay_sense_amp +  
+    delay_subarray_output_driver + delay_dout_vertical_htree + delay_dout_horizontal_htree + 
+    delay_route_to_bank;
+
+  delay_data_access_senseamp_mux_lev_1_path = 
+    max_delay_before_senseamp_mux_lev_1_decoder + _senseamp_mux_lev_1_dec.delay + 
+    delay_subarray_output_driver + delay_dout_vertical_htree + delay_dout_horizontal_htree + delay_route_to_bank;
+  delay_data_access_senseamp_mux_lev_2_path =
+    max_delay_before_senseamp_mux_lev_2_decoder + _senseamp_mux_lev_2_dec.delay + 
+    delay_subarray_output_driver + delay_dout_vertical_htree + delay_dout_horizontal_htree + delay_route_to_bank;
+  
+  temp_delay_data_access_path = MAX(delay_data_access_row_path, delay_data_access_col_path);
+  delay_data_access_path = MAX(temp_delay_data_access_path, 
+                               MAX(delay_data_access_senseamp_mux_lev_1_path,
+                                   delay_data_access_senseamp_mux_lev_2_path));
+  delay_before_subarray_output_driver = delay_data_access_path - 
+    (delay_subarray_output_driver + delay_dout_vertical_htree + delay_dout_horizontal_htree + 
+     delay_route_to_bank);
+  delay_from_subarray_output_driver_to_output = delay_subarray_output_driver + 
+    delay_dout_vertical_htree + delay_dout_horizontal_htree + delay_route_to_bank;
+  
+  if ((is_tag)&&(fully_assoc))
+  { //delay of fully-associative tag decoder
+    access_time = delay_route_to_bank + delay_addr_din_horizontal_htree + 
+                  delay_addr_din_vertical_htree + delay_fa_decoder;
+  }
+  else if (fully_assoc)
+  { //delay of fully-associative data array
+    access_time = _row_dec.delay + delay_bitline + delay_sense_amp +  delay_subarray_output_driver +
+                  delay_dout_vertical_htree + delay_dout_horizontal_htree + delay_route_to_bank;
+  }
+  else
+  {
+    access_time = delay_data_access_path;
+  }
+
+  if (is_main_mem)
+  {
+    t_rcd = max_delay_before_row_decoder + _row_dec.delay + delay_bitline + delay_sense_amp;
+    cas_latency = MAX(max_delay_before_senseamp_mux_lev_1_decoder + _senseamp_mux_lev_1_dec.delay,
+                      max_delay_before_senseamp_mux_lev_2_decoder + _senseamp_mux_lev_2_dec.delay) + 
+                  delay_subarray_output_driver + delay_dout_vertical_htree +
+                  delay_dout_horizontal_htree  + delay_route_to_bank;
+    access_time = t_rcd + cas_latency;
+  }
+
+
+  if ((is_tag)&&(!fully_assoc))
+  {
+    delay_comparator(
+        tagbits,
+        g_ip.tag_assoc,
+        inrisetime,
+        &outrisetime,
+        &comparator_delay,
+        &comparator_power,
+        is_dram,
+        cell.h);
+    access_time += comparator_delay;
+  }
+  else
+  {
+    comparator_delay = 0;
+  }
+
+
+  if (!((is_tag)&&(fully_assoc)))
+  {
+    dummy_precharge_outrisetime = bl_precharge_eq_drv.compute_delay(0, is_dram);
+    k = _row_dec.num_gates - 1;
+    rd = tr_R_on(_row_dec.w_dec_n[k], NCH, 1, is_dram, false, true);
+    c_intrinsic = drain_C_(_row_dec.w_dec_p[k], PCH, 1, 1, 4*cell.h, is_dram, false, true) +
+                  drain_C_(_row_dec.w_dec_n[k], NCH, 1, 1, 4*cell.h, is_dram, false, true);
+    c_load = _row_dec.C_ld_dec_out;
+    tf = rd * (c_intrinsic + c_load) + _row_dec.R_wire_dec_out * c_load / 2;
+    wordline_reset_delay = horowitz(0, tf, 0.5, 0.5, RISE);
+    r_bitline_precharge = tr_R_on(g_tp.w_pmos_bl_precharge, PCH, 1, is_dram, false, false);
+    r_bitline = num_r_subarray * r_b_metal;
+
+    if (is_dram)
+    {
+      bitline_restore_delay = bl_precharge_eq_drv.delay + 
+        2.3 * (r_bitline_precharge * Cbitline + r_bitline * Cbitline / 2);
+      temp = wordline_data + delay_bitline + delay_sense_amp + writeback_delay +
+        wordline_reset_delay + bitline_restore_delay;//temp stores random cycle time
+    }
+    else
+    {
+      bitline_restore_delay = bl_precharge_eq_drv.delay + 
+        log((g_tp.sram.Vbitpre - 0.1 * v_b_sense) / (g_tp.sram.Vbitpre - v_b_sense))*(r_bitline_precharge * Cbitline +
+        r_bitline * Cbitline / 2);
+      temp = wordline_data + delay_bitline + wordline_reset_delay + delay_sense_amp + bitline_restore_delay;
+    }
+  }
+  else
+  {
+    temp = delay_fa_decoder;
+  }
+
+  delay_within_mat_before_row_decoder = max_delay_before_row_decoder - 
+    (delay_route_to_bank + delay_addr_din_horizontal_htree + delay_addr_din_vertical_htree);
+  delay_within_mat_before_bit_mux_decoder = max_delay_before_bit_mux_decoder - 
+    (delay_route_to_bank + delay_addr_din_horizontal_htree + delay_addr_din_vertical_htree);
+  delay_within_mat_before_senseamp_mux_lev_1_decoder = max_delay_before_senseamp_mux_lev_1_decoder - 
+    (delay_route_to_bank + delay_addr_din_horizontal_htree + delay_addr_din_vertical_htree);
+  delay_within_mat_before_senseamp_mux_lev_2_decoder = max_delay_before_senseamp_mux_lev_2_decoder - 
+    (delay_route_to_bank + delay_addr_din_horizontal_htree + delay_addr_din_vertical_htree);
+  
+  
+  temp = MAX(temp, delay_within_mat_before_row_decoder);
+  temp = MAX(temp, delay_within_mat_before_bit_mux_decoder);
+  temp = MAX(temp, delay_within_mat_before_senseamp_mux_lev_1_decoder);
+  temp = MAX(temp, delay_within_mat_before_senseamp_mux_lev_2_decoder);
+  temp = MAX(temp, hor_addr_di_htree_at_mat_interval.max_delay_between_buffers);
+  temp = MAX(temp, ver_addr_di_htree_at_mat_interval.max_delay_between_buffers);
+  cycle_time = temp;
+
+  temp = MAX(max_delay_before_row_decoder, delay_subarray_output_driver +
+                                           delay_dout_vertical_htree +
+                                           delay_dout_horizontal_htree +
+                                           delay_route_to_bank);
+  multisubbank_interleave_cycle_time = temp;
+
+  delay_request_network = max_delay_before_row_decoder;
+  delay_inside_mat      = wordline_data + delay_bitline + delay_sense_amp;
+  delay_reply_network   = delay_subarray_output_driver + delay_dout_vertical_htree +
+                          delay_dout_horizontal_htree + delay_route_to_bank;
+  
+  if (is_main_mem)
+  {
+    multisubbank_interleave_cycle_time = delay_route_to_bank;
+    precharge_delay = delay_route_to_bank + delay_addr_din_horizontal_htree + 
+                      delay_addr_din_vertical_htree + writeback_delay +
+                      wordline_reset_delay + bitline_restore_delay;
+    cycle_time = access_time + precharge_delay;
+  }
+  
+
+  if (is_dram)
+  {
+    dram_array_availability = (1 - num_r_subarray * cycle_time / dram_refresh_period) * 100;
+  }
+  else
+  {
+    dram_array_availability = 0;
+  }
+
+  number_addr_bits_routed_to_bank_for_activate = number_addr_bits_row_decode + number_subbanks_decode;
+  number_addr_bits_routed_to_bank_for_read_or_write = number_addr_bits_mat - number_addr_bits_row_decode + number_subbanks_decode;
+  number_addr_bits_routed_to_mat_for_activate = number_addr_bits_row_decode;
+  number_addr_bits_routed_to_mat_for_read_or_write = number_addr_bits_mat - number_addr_bits_row_decode;
+  // calculate dynamic energy per access. Note that the name of the variables have "power" 
+  // in them but readOp.dynamic is actually energy. readop.leakage is power. 
+  if (!is_tag)
+  {
+    tot_power_routing_to_bank.readOp.dynamic = power_routing_to_bank.readOp.dynamic *
+      (number_addr_bits_routed_to_bank + number_data_bits_routed_to_bank / 2 +
+      num_comp_b_routed_to_bank);
+    tot_power_routing_to_bank.writeOp.dynamic = tot_power_routing_to_bank.readOp.dynamic;
+    tot_power_crossbar.readOp.dynamic = num_do_b_subbank * crossbar.power.readOp.dynamic;
+    routing_to_bank_for_activate_energy = number_addr_bits_routed_to_bank_for_activate * power_routing_to_bank.readOp.dynamic;
+    routing_addr_to_bank_for_read_or_write_energy = number_addr_bits_routed_to_bank_for_read_or_write * power_routing_to_bank.readOp.dynamic;
+    routing_datain_bits_to_bank_energy_for_write = (number_data_bits_routed_to_bank / 2) * power_routing_to_bank.readOp.dynamic;
+  }
+  else
+  {
+    tot_power_routing_to_bank.readOp.dynamic = power_routing_to_bank.readOp.dynamic *
+      (number_addr_bits_routed_to_bank + tagbits + g_ip.data_assoc);
+    tot_power_routing_to_bank.writeOp.dynamic = power_routing_to_bank.writeOp.dynamic *
+      (number_addr_bits_routed_to_bank + tagbits);
+  }
+  tot_power.readOp.dynamic += tot_power_routing_to_bank.readOp.dynamic;
+  tot_power.readOp.dynamic += tot_power_crossbar.readOp.dynamic;
+
+  //Add energy consumed in the horizontal H-trees within a bank
+  htree_seg_multiplier = 1;
+  length_htree_segment = pow(2, num_h_htree_nodes - 1) * 
+    hor_addr_di_htree_at_mat_interval.mat_dimension / 2;
+  for (k = 0; k < num_h_htree_nodes; ++k)
+  {
+    power_addr_datain_horizontal_htree_node = hor_addr_di_htree_node.compute_power(k);
+    if (g_ip.rpters_in_htree == true)
+    {
+      power_addr_datain_horizontal_htree_node = hor_addr_di_htree_at_mat_interval.compute_power_addr_datain(
+          length_htree_segment, k, bank_htree_sizing);
+    }
+    tot_power_addr_horizontal_htree.readOp.dynamic +=
+      (number_addr_bits_mat + number_way_select_signals_mat) * 
+      power_addr_datain_horizontal_htree_node.readOp.dynamic * htree_seg_multiplier;
+    tot_power_datain_horizontal_htree.readOp.dynamic  += g_ip.burst_len * num_di_b_mat * 
+      num_mats_h_dir *  power_addr_datain_horizontal_htree_node.readOp.dynamic;
+    tot_power_dataout_horizontal_htree.readOp.dynamic += g_ip.burst_len * num_do_b_mat * 
+      num_mats_h_dir *  power_addr_datain_horizontal_htree_node.readOp.dynamic;
+    hor_htree_routing_e_for_act += number_addr_bits_routed_to_mat_for_activate * power_addr_datain_horizontal_htree_node.readOp.dynamic * htree_seg_multiplier;
+    horizontal_addr_htree_routing_energy_for_read_or_write += number_addr_bits_routed_to_mat_for_read_or_write * power_addr_datain_horizontal_htree_node.readOp.dynamic * htree_seg_multiplier;
+    horizontal_datain_htree_routing_energy_for_write += num_di_b_mat * power_addr_datain_horizontal_htree_node.readOp.dynamic * htree_seg_multiplier;
+    horizontal_dataout_htree_energy_for_read += num_do_b_mat * power_addr_datain_horizontal_htree_node.readOp.dynamic * htree_seg_multiplier;
+    htree_seg_multiplier *= 2;
+    length_htree_segment /= 2;
+  }
+  
+  tot_power.readOp.dynamic += tot_power_addr_horizontal_htree.readOp.dynamic +
+                              tot_power_dataout_horizontal_htree.readOp.dynamic;  
+
+  // add energy consumed in address/datain vertical htree
+  htree_seg_multiplier = 1;
+  length_htree_segment = pow(2, num_v_htree_nodes - 1) * 
+    ver_addr_di_htree_at_mat_interval.mat_dimension / 2;
+  for (k = 0; k < num_v_htree_nodes; ++k)
+  {
+    power_addr_datain_vertical_htree_node = ver_addr_di_htree_node.compute_power(k);
+    if (g_ip.rpters_in_htree == true)
+    {
+      power_addr_datain_vertical_htree_node = ver_addr_di_htree_at_mat_interval.compute_power_addr_datain(
+          length_htree_segment, k, bank_htree_sizing);
+    }
+    tot_power_addr_vertical_htree.readOp.dynamic +=  
+      (number_addr_bits_mat + number_way_select_signals_mat) * 
+      power_addr_datain_vertical_htree_node.readOp.dynamic * htree_seg_multiplier * num_act_mats_hor_dir;
+    tot_power_datain_vertical_htree.readOp.dynamic += g_ip.burst_len * num_di_b_mat * 
+      power_addr_datain_vertical_htree_node.readOp.dynamic * htree_seg_multiplier * num_act_mats_hor_dir;
+    vertical_htree_routing_energy_for_activate += number_addr_bits_routed_to_mat_for_activate * 
+      power_addr_datain_vertical_htree_node.readOp.dynamic * htree_seg_multiplier * num_act_mats_hor_dir;
+    vertical_addr_htree_routing_energy_for_read_or_write += number_addr_bits_routed_to_mat_for_read_or_write * 
+      power_addr_datain_vertical_htree_node.readOp.dynamic * htree_seg_multiplier * num_act_mats_hor_dir;
+    vertical_datain_htree_routing_energy_for_write += num_di_b_mat * 
+      power_addr_datain_vertical_htree_node.readOp.dynamic * htree_seg_multiplier * num_act_mats_hor_dir;
+
+    if (g_ip.broadcast_addr_din_over_ver_htrees)
+    {
+      htree_seg_multiplier *= 2;
+    }
+    else
+    {
+      htree_seg_multiplier = 1;
+    }
+    length_htree_segment /= 2;
+  }
+
+  if ((num_mats_v_dir > 1)&&(g_ip.broadcast_addr_din_over_ver_htrees))
+  {
+    tot_power_addr_vertical_htree.readOp.dynamic *= 2; 
+    tot_power_datain_vertical_htree.readOp.dynamic *= 2;
+  }
+  
+  tot_power.readOp.dynamic += tot_power_addr_vertical_htree.readOp.dynamic;
+
+  //Add energy consumed in predecoder drivers
+  tot_power_row_predecode_block_drivers.readOp.dynamic =
+    r_predec_blk_drv1.get_readOp_dynamic_power(num_act_mats_hor_dir) +
+    r_predec_blk_drv2.get_readOp_dynamic_power(num_act_mats_hor_dir);
+  tot_power_bit_mux_predecode_block_drivers.readOp.dynamic  = 
+    b_mux_predec_blk_drv1.get_readOp_dynamic_power(num_act_mats_hor_dir) +
+    b_mux_predec_blk_drv2.get_readOp_dynamic_power(num_act_mats_hor_dir);
+  tot_power_senseamp_mux_lev_1_predecode_block_drivers.readOp.dynamic = 
+    senseamp_mux_lev_1_predec_blk_drv1.get_readOp_dynamic_power(num_act_mats_hor_dir) +
+    senseamp_mux_lev_1_predec_blk_drv2.get_readOp_dynamic_power(num_act_mats_hor_dir);
+  tot_power_senseamp_mux_lev_2_predecode_block_drivers.readOp.dynamic = 
+    senseamp_mux_lev_2_predec_blk_drv1.get_readOp_dynamic_power(num_act_mats_hor_dir) +
+    senseamp_mux_lev_2_predec_blk_drv2.get_readOp_dynamic_power(num_act_mats_hor_dir);
+  tot_power.readOp.dynamic += 
+    tot_power_row_predecode_block_drivers.readOp.dynamic +
+    tot_power_bit_mux_predecode_block_drivers.readOp.dynamic +
+    tot_power_senseamp_mux_lev_1_predecode_block_drivers.readOp.dynamic +
+    tot_power_senseamp_mux_lev_2_predecode_block_drivers.readOp.dynamic;
+
+  //Add energy consumed in predecode blocks
+  tot_power_row_predecode_blocks.readOp.dynamic =
+    (r_predec_blk1.power_nand2_path.readOp.dynamic   +
+     r_predec_blk1.power_nand3_path.readOp.dynamic   +
+     r_predec_blk1.power_L2.readOp.dynamic +
+     r_predec_blk2.power_nand2_path.readOp.dynamic   + 
+     r_predec_blk2.power_nand3_path.readOp.dynamic   +
+     r_predec_blk2.power_L2.readOp.dynamic) * num_act_mats_hor_dir;
+  tot_power_bit_mux_predecode_blocks.readOp.dynamic =
+    (b_mux_predec_blk1.power_nand2_path.readOp.dynamic   +
+     b_mux_predec_blk1.power_nand3_path.readOp.dynamic   +
+     b_mux_predec_blk1.power_L2.readOp.dynamic +
+     b_mux_predec_blk2.power_nand2_path.readOp.dynamic   +
+     b_mux_predec_blk2.power_nand3_path.readOp.dynamic   +
+     b_mux_predec_blk2.power_L2.readOp.dynamic) * num_act_mats_hor_dir;
+  tot_power_senseamp_mux_lev_1_predecode_blocks.readOp.dynamic =
+    (senseamp_mux_lev_1_predec_blk1.power_nand2_path.readOp.dynamic   +
+     senseamp_mux_lev_1_predec_blk1.power_nand3_path.readOp.dynamic   +
+     senseamp_mux_lev_1_predec_blk1.power_L2.readOp.dynamic +
+     senseamp_mux_lev_1_predec_blk2.power_nand2_path.readOp.dynamic   + 
+     senseamp_mux_lev_1_predec_blk2.power_nand3_path.readOp.dynamic   +
+     senseamp_mux_lev_1_predec_blk2.power_L2.readOp.dynamic) * num_act_mats_hor_dir;
+  tot_power_senseamp_mux_lev_2_predecode_blocks.readOp.dynamic =
+    (senseamp_mux_lev_2_predec_blk1.power_nand2_path.readOp.dynamic   +
+     senseamp_mux_lev_2_predec_blk1.power_nand3_path.readOp.dynamic   +
+     senseamp_mux_lev_2_predec_blk1.power_L2.readOp.dynamic +
+     senseamp_mux_lev_2_predec_blk2.power_nand2_path.readOp.dynamic   + 
+     senseamp_mux_lev_2_predec_blk2.power_nand3_path.readOp.dynamic   +
+     senseamp_mux_lev_2_predec_blk2.power_L2.readOp.dynamic) * num_act_mats_hor_dir;
+  tot_power.readOp.dynamic += 
+    tot_power_row_predecode_blocks.readOp.dynamic +
+    tot_power_bit_mux_predecode_blocks.readOp.dynamic +
+    tot_power_senseamp_mux_lev_1_predecode_blocks.readOp.dynamic +
+    tot_power_senseamp_mux_lev_2_predecode_blocks.readOp.dynamic;
+
+  // add energy consumed in decoders
+  if ((fully_assoc)&&(is_tag))
+  { //Fully-associative cache tag array decoding energy is stored in tot_power_row_decoders
+    tot_power_row_decoders.readOp.dynamic = power_fa_decoder.readOp.dynamic;
+  }
+  else if (fully_assoc)
+  {
+    tot_power_row_decoders.readOp.dynamic = _row_dec.power.readOp.dynamic * num_act_mats_hor_dir;
+  }
+  else
+  {
+    tot_power_row_decoders.readOp.dynamic = _row_dec.power.readOp.dynamic * 4 * num_act_mats_hor_dir;
+  }
+  
+  if(fully_assoc)
+  { //Fully-associative data array
+    tot_power_bitlines_precharge_eq_driver.readOp.dynamic = bl_precharge_eq_drv.power.readOp.dynamic *
+        num_act_mats_hor_dir;
+  }
+  else
+  {
+    tot_power_bitlines_precharge_eq_driver.readOp.dynamic = bl_precharge_eq_drv.power.readOp.dynamic *
+        4 * num_act_mats_hor_dir;
+  }
+
+  //If DRAM, add contribution of power spent in row predecoder drivers, blocks and decoders to refresh power
+  if (is_dram)
+  {
+    refresh_power += (tot_power_row_predecode_block_drivers.readOp.dynamic +
+                      tot_power_row_predecode_blocks.readOp.dynamic + _row_dec.power.readOp.dynamic) * 
+                     num_r_subarray * num_subarrays / dram_refresh_period;
+    refresh_power += per_bitline_read_energy * num_c_subarray * num_r_subarray * num_subarrays / dram_refresh_period;
+    refresh_power += tot_power_bitlines_precharge_eq_driver.readOp.dynamic;
+    refresh_power += sense_amp_data_power.readOp.dynamic;
+  }
+
+  tot_power_bit_mux_decoders.readOp.dynamic = _bit_mux_dec.power.readOp.dynamic * num_act_mats_hor_dir;
+  tot_power_senseamp_mux_lev_1_decoders.readOp.dynamic =
+    _senseamp_mux_lev_1_dec.power.readOp.dynamic * num_act_mats_hor_dir;
+  tot_power_senseamp_mux_lev_2_decoders.readOp.dynamic =
+    _senseamp_mux_lev_2_dec.power.readOp.dynamic * num_act_mats_hor_dir;
+  tot_power.readOp.dynamic += 
+    tot_power_row_decoders.readOp.dynamic + tot_power_bit_mux_decoders.readOp.dynamic +
+    tot_power_senseamp_mux_lev_1_decoders.readOp.dynamic + tot_power_senseamp_mux_lev_2_decoders.readOp.dynamic;
+  
+  if (!(fully_assoc&&is_tag))
+  { //If fully associative cache and tag array, don't add the following components of energy
+    //Add energy consumed in bitlines
+    tot_power_bitlines.readOp.dynamic = bitline_data_power.readOp.dynamic;
+    tot_power_bitlines.writeOp.dynamic = bitline_data_power.writeOp.dynamic;
+    tot_power.readOp.dynamic += tot_power_bitlines.readOp.dynamic;
+
+    //Add energy consumed in the precharge and equalization driver
+    tot_power.readOp.dynamic += tot_power_bitlines_precharge_eq_driver.readOp.dynamic;
+
+    //Add energy consumed in sense amplifiers
+    tot_power_sense_amps.readOp.dynamic = sense_amp_data_power.readOp.dynamic;
+    tot_power.readOp.dynamic += tot_power_sense_amps.readOp.dynamic;
+
+    //Add energy consumed in subarray output driver circuitry
+    tot_power_subarray_output_drivers.readOp.dynamic = power_output_drivers_at_subarray.readOp.dynamic * 
+      num_do_b_mat * num_act_mats_hor_dir;
+    tot_power.readOp.dynamic += tot_power_subarray_output_drivers.readOp.dynamic;
+  }
+
+  //Add energy consumed in vertical dataout htree
+  if (g_ip.rpters_in_htree == false)
+  {
+    tot_power_dataout_vertical_htree.readOp.dynamic = g_ip.burst_len * num_do_b_mat * 
+      num_act_mats_hor_dir * power_dout_htree.readOp.dynamic;
+  }
+  else
+  {
+    length_htree_segment = pow(2, num_v_htree_nodes - 1) * 
+      ver_addr_di_htree_at_mat_interval.mat_dimension / 2;
+    for(k = 0; k < num_v_htree_nodes; ++k)
+    {
+      power_dout_vertical_htree_node = 
+        ver_addr_di_htree_at_mat_interval.compute_power_dataout_ver(length_htree_segment, k, bank_htree_sizing);
+      tot_power_dataout_vertical_htree.readOp.dynamic += g_ip.burst_len * num_do_b_mat * 
+        power_dout_vertical_htree_node.readOp.dynamic * num_act_mats_hor_dir;
+      vertical_dataout_htree_routing_energy_for_read =
+        num_do_b_mat * power_dout_vertical_htree_node.readOp.dynamic * num_act_mats_hor_dir;
+      length_htree_segment /= 2;
+    }
+  }
+  tot_power.readOp.dynamic += tot_power_dataout_vertical_htree.readOp.dynamic;
+
+  tot_power_comparators.readOp.dynamic = comparator_power.readOp.dynamic * num_act_mats_hor_dir;
+  tot_power.readOp.dynamic += tot_power_comparators.readOp.dynamic;
+
+  //Calculate total write energy per access
+  if(is_dram)
+  {
+    tot_power.writeOp.dynamic = tot_power.readOp.dynamic - tot_power_bitlines.readOp.dynamic +
+      tot_power_bitlines.writeOp.dynamic - tot_power_routing_to_bank.readOp.dynamic +
+      tot_power_routing_to_bank.writeOp.dynamic - tot_power_dataout_horizontal_htree.readOp.dynamic +
+      tot_power_datain_horizontal_htree.readOp.dynamic - tot_power_dataout_vertical_htree.readOp.dynamic +
+      tot_power_datain_vertical_htree.readOp.dynamic;
+  }
+  else
+  {
+    tot_power.writeOp.dynamic = tot_power.readOp.dynamic - tot_power_bitlines.readOp.dynamic +
+      tot_power_bitlines.writeOp.dynamic - tot_power_sense_amps.readOp.dynamic - tot_power_routing_to_bank.readOp.dynamic +
+      tot_power_routing_to_bank.writeOp.dynamic - tot_power_dataout_horizontal_htree.readOp.dynamic +
+      tot_power_datain_horizontal_htree.readOp.dynamic - tot_power_dataout_vertical_htree.readOp.dynamic +
+      tot_power_datain_vertical_htree.readOp.dynamic;
+  }
+ 
+  dyn_read_energy_from_closed_page = tot_power.readOp.dynamic;
+  dyn_read_energy_from_open_page   = tot_power.readOp.dynamic - tot_power_row_predecode_blocks.readOp.dynamic -
+    tot_power_row_decoders.readOp.dynamic -	tot_power_bitlines_precharge_eq_driver.readOp.dynamic -
+    tot_power_sense_amps.readOp.dynamic - tot_power_bitlines.readOp.dynamic;
+  
+  dyn_read_energy_remaining_words_in_burst = 
+    (MAX((g_ip.burst_len / g_ip.int_prefetch_w), 1) - 1) * 
+    (tot_power_senseamp_mux_lev_1_predecode_blocks.readOp.dynamic +
+     tot_power_senseamp_mux_lev_2_predecode_blocks.readOp.dynamic +
+     tot_power_senseamp_mux_lev_1_decoders.readOp.dynamic +
+     tot_power_senseamp_mux_lev_2_decoders.readOp.dynamic +
+     tot_power_subarray_output_drivers.readOp.dynamic +
+     tot_power_dataout_vertical_htree.readOp.dynamic +
+     tot_power_routing_to_bank.readOp.dynamic);
+  
+  dyn_read_energy_from_closed_page += dyn_read_energy_remaining_words_in_burst;
+  dyn_read_energy_from_open_page   += dyn_read_energy_remaining_words_in_burst;
+  
+  if (!is_tag)
+  {
+    tot_power.readOp.dynamic  = dyn_read_energy_from_closed_page;
+    if(is_dram)
+    {
+      tot_power.writeOp.dynamic = dyn_read_energy_from_closed_page - dyn_read_energy_remaining_words_in_burst -
+        tot_power_bitlines.readOp.dynamic + tot_power_bitlines.writeOp.dynamic +
+        (tot_power_routing_to_bank.writeOp.dynamic  - tot_power_routing_to_bank.readOp.dynamic -
+         tot_power_dataout_horizontal_htree.readOp.dynamic + tot_power_datain_horizontal_htree.readOp.dynamic -
+         tot_power_dataout_vertical_htree.readOp.dynamic + tot_power_datain_vertical_htree.readOp.dynamic) * 
+        (MAX((g_ip.burst_len / g_ip.int_prefetch_w), 1) - 1);
+    }
+    else
+    {
+      tot_power.writeOp.dynamic = dyn_read_energy_from_closed_page - dyn_read_energy_remaining_words_in_burst -
+        tot_power_bitlines.readOp.dynamic + tot_power_bitlines.writeOp.dynamic - tot_power_sense_amps.readOp.dynamic +
+        (tot_power_routing_to_bank.writeOp.dynamic  - tot_power_routing_to_bank.readOp.dynamic -
+         tot_power_dataout_horizontal_htree.readOp.dynamic + tot_power_datain_horizontal_htree.readOp.dynamic -
+         tot_power_dataout_vertical_htree.readOp.dynamic + tot_power_datain_vertical_htree.readOp.dynamic) * 
+        (MAX((g_ip.burst_len / g_ip.int_prefetch_w), 1) - 1);
+    }
+  }
+  
+  activate_energy = 
+    routing_to_bank_for_activate_energy + hor_htree_routing_e_for_act +
+    tot_power_row_predecode_block_drivers.readOp.dynamic + tot_power_row_predecode_blocks.readOp.dynamic +
+    tot_power_row_decoders.readOp.dynamic + tot_power_sense_amps.readOp.dynamic;
+  read_energy = 
+    g_ip.burst_len * 
+    (routing_addr_to_bank_for_read_or_write_energy + horizontal_addr_htree_routing_energy_for_read_or_write +
+     vertical_addr_htree_routing_energy_for_read_or_write + 
+     tot_power_senseamp_mux_lev_1_predecode_block_drivers.readOp.dynamic +
+     tot_power_senseamp_mux_lev_2_predecode_block_drivers.readOp.dynamic +
+     tot_power_senseamp_mux_lev_1_predecode_blocks.readOp.dynamic +
+     tot_power_senseamp_mux_lev_2_predecode_blocks.readOp.dynamic +
+     tot_power_senseamp_mux_lev_1_decoders.readOp.dynamic + 
+     tot_power_senseamp_mux_lev_2_decoders.readOp.dynamic +
+     tot_power_subarray_output_drivers.readOp.dynamic +
+     vertical_dataout_htree_routing_energy_for_read +
+     horizontal_dataout_htree_energy_for_read +
+     routing_datain_bits_to_bank_energy_for_write);
+  write_energy =
+    g_ip.burst_len *
+    (routing_addr_to_bank_for_read_or_write_energy +
+     horizontal_addr_htree_routing_energy_for_read_or_write +
+     vertical_addr_htree_routing_energy_for_read_or_write +
+     routing_datain_bits_to_bank_energy_for_write +
+     horizontal_datain_htree_routing_energy_for_write +
+     vertical_datain_htree_routing_energy_for_write +
+     tot_power_senseamp_mux_lev_1_predecode_block_drivers.readOp.dynamic +
+     tot_power_senseamp_mux_lev_2_predecode_block_drivers.readOp.dynamic +
+     tot_power_senseamp_mux_lev_1_predecode_blocks.readOp.dynamic +
+     tot_power_senseamp_mux_lev_2_predecode_blocks.readOp.dynamic +
+     tot_power_senseamp_mux_lev_1_decoders.readOp.dynamic +
+     tot_power_senseamp_mux_lev_2_decoders.readOp.dynamic);
+  precharge_energy =  bitline_data_power.readOp.dynamic + tot_power_bitlines_precharge_eq_driver.readOp.dynamic;
+
+
+  // calculate leakage power
+  tot_power_routing_to_bank.readOp.leakage +=
+    power_routing_to_bank.readOp.leakage * number_bits_routed_to_bank *
+    (g_ip.num_rw_ports + g_ip.num_rd_ports + g_ip.num_wr_ports);
+  if (is_main_mem)
+  {
+    tot_power_routing_to_bank.readOp.leakage /= (int) g_ip.nbanks;
+  }
+  tot_power.readOp.leakage += tot_power_routing_to_bank.readOp.leakage;
+
+  tot_power_crossbar.readOp.leakage = 
+    crossbar.power.readOp.leakage * NUMBER_INPUT_PORTS_CROSSBAR *
+    NUMBER_OUTPUT_PORTS_CROSSBAR * NUMBER_SIGNALS_PER_PORT_CROSSBAR;
+  tot_power.readOp.leakage += tot_power_crossbar.readOp.leakage;
+    
+  htree_seg_multiplier = 1;
+  length_htree_segment = pow(2, num_h_htree_nodes - 1) * hor_addr_di_htree_at_mat_interval.mat_dimension / 2;
+  for (k = 0; k < num_h_htree_nodes; ++k)
+  {
+    power_addr_datain_horizontal_htree_node = hor_addr_di_htree_node.compute_power(k);
+    if (g_ip.rpters_in_htree == true)
+    {
+      power_addr_datain_horizontal_htree_node = hor_addr_di_htree_at_mat_interval.compute_power_addr_datain(
+          length_htree_segment, k, bank_htree_sizing);
+    }
+    tot_power_addr_horizontal_htree.readOp.leakage +=
+      (number_addr_bits_mat + number_way_select_signals_mat) * 
+      power_addr_datain_horizontal_htree_node.readOp.leakage * htree_seg_multiplier *
+      (g_ip.num_rw_ports + g_ip.num_rd_ports + g_ip.num_wr_ports);
+    tot_power_datain_horizontal_htree.readOp.leakage += 
+      num_di_b_mat * num_mats_h_dir * power_addr_datain_horizontal_htree_node.readOp.leakage *
+      (g_ip.num_rw_ports + g_ip.num_wr_ports);
+    tot_power_dataout_horizontal_htree.readOp.leakage += num_do_b_mat * 
+      num_mats_h_dir * power_addr_datain_horizontal_htree_node.readOp.leakage *
+      (g_ip.num_rw_ports + g_ip.num_rd_ports);
+    htree_seg_multiplier *= 2;
+    length_htree_segment /= 2;
+  }
+
+  tot_power.readOp.leakage += tot_power_addr_horizontal_htree.readOp.leakage +
+  tot_power_datain_horizontal_htree.readOp.leakage +
+  tot_power_dataout_horizontal_htree.readOp.leakage;
+
+  htree_seg_multiplier = 1;
+  length_htree_segment = pow(2, num_v_htree_nodes - 1) * ver_addr_di_htree_at_mat_interval.mat_dimension / 2;
+  for (k = 0; k < num_v_htree_nodes; ++k)
+  {
+    power_addr_datain_vertical_htree_node = ver_addr_di_htree_node.compute_power(k);
+    if (g_ip.rpters_in_htree == true)
+    {
+      power_addr_datain_vertical_htree_node = ver_addr_di_htree_at_mat_interval.compute_power_addr_datain(
+          length_htree_segment, k, bank_htree_sizing);
+    }
+    tot_power_addr_vertical_htree.readOp.leakage +=
+      (number_addr_bits_mat + number_way_select_signals_mat) * 
+      power_addr_datain_vertical_htree_node.readOp.leakage * 
+      htree_seg_multiplier * num_mats_h_dir *
+      (g_ip.num_rw_ports + g_ip.num_rd_ports + g_ip.num_wr_ports);
+    tot_power_datain_vertical_htree.readOp.leakage += 
+      num_di_b_mat * power_addr_datain_vertical_htree_node.readOp.leakage *
+      htree_seg_multiplier * num_mats_h_dir *
+      (g_ip.num_rw_ports + g_ip.num_wr_ports);
+    htree_seg_multiplier *= 2;
+    length_htree_segment /= 2;
+  }
+
+  if(num_mats_v_dir > 1)
+  {
+    tot_power_addr_vertical_htree.readOp.leakage *= 2; 
+    tot_power_datain_vertical_htree.readOp.leakage *= 2;
+  }
+  
+  tot_power.readOp.leakage += tot_power_addr_vertical_htree.readOp.leakage +
+    tot_power_datain_vertical_htree.readOp.leakage;
+
+  if(g_ip.rpters_in_htree == false)
+  {
+    if(num_mats_v_dir > 1)
+    {
+      tot_power_dataout_vertical_htree.readOp.leakage = num_do_b_mat * 
+        num_mats_h_dir *  2 * power_dout_htree.readOp.leakage *
+        (g_ip.num_rw_ports + g_ip.num_rd_ports);
+    }
+    else
+    {//num_mats_v_dir = 1
+      tot_power_dataout_vertical_htree.readOp.leakage = num_do_b_mat * 
+        num_mats_h_dir *  1 * power_dout_htree.readOp.leakage * 
+        (g_ip.num_rw_ports + g_ip.num_rd_ports);
+    }
+  }
+  else
+  {
+    htree_seg_multiplier = 1;
+    length_htree_segment = pow(2, num_v_htree_nodes - 1) * 
+      ver_addr_di_htree_at_mat_interval.mat_dimension / 2;
+    for (k = 0; k < num_v_htree_nodes; ++k)
+    {
+      power_dout_vertical_htree_node = ver_addr_di_htree_at_mat_interval.compute_power_dataout_ver(
+          length_htree_segment, k, bank_htree_sizing);
+      tot_power_dataout_vertical_htree.readOp.leakage += num_do_b_mat * 
+        power_dout_vertical_htree_node.readOp.leakage * htree_seg_multiplier * 
+        num_mats_h_dir;
+      htree_seg_multiplier *= 2;
+      length_htree_segment /= 2;
+    }
+    if(num_mats_v_dir > 1){
+      tot_power_dataout_vertical_htree.readOp.leakage *=   2 * (g_ip.num_rw_ports + 
+        g_ip.num_rd_ports);
+    }
+    else{//num_mats_v_dir = 1
+      tot_power_dataout_vertical_htree.readOp.leakage *=   1 * (g_ip.num_rw_ports + 
+        g_ip.num_rd_ports);
+    }
+  }
+    tot_power.readOp.leakage += tot_power_dataout_vertical_htree.readOp.leakage;
+
+  if (!(fully_assoc&&is_tag))
+  { // if fully associative cache and tag array, don't add the following components of leakage power
+    tot_power_bitlines.readOp.leakage = bitline_data_power.readOp.leakage *
+      num_r_subarray * num_c_subarray * num_subarrays; //This is actually leakage in the memory cells.
+    tot_power.readOp.leakage += tot_power_bitlines.readOp.leakage;
+
+    tot_power_bitlines_precharge_eq_driver.readOp.leakage = 
+      bl_precharge_eq_drv.power.readOp.leakage * num_subarrays;
+    tot_power.readOp.leakage += tot_power_bitlines_precharge_eq_driver.readOp.leakage;
+
+    tot_power_sense_amps.readOp.leakage = sense_amp_data_power.readOp.leakage * 
+      (g_ip.num_rw_ports + g_ip.num_rd_ports);
+    tot_power.readOp.leakage += tot_power_sense_amps.readOp.leakage;
+
+    tot_power_subarray_output_drivers.readOp.leakage = power_output_drivers_at_subarray.readOp.leakage *
+      number_output_drivers_subarray * num_subarrays * 
+      (g_ip.num_rw_ports + g_ip.num_rd_ports);
+    tot_power.readOp.leakage += tot_power_subarray_output_drivers.readOp.leakage;
+  }
+
+  tot_power_comparators.readOp.leakage = 
+    comparator_power.readOp.leakage * num_do_b_mat * number_mats *
+    (g_ip.num_rw_ports + g_ip.num_rd_ports);
+  tot_power.readOp.leakage += tot_power_comparators.readOp.leakage;
+
+  // if DRAM, add refresh power to total leakage
+  if (is_dram)
+  {
+    tot_power.readOp.leakage += refresh_power;
+  }
+  
+  if (is_main_mem)
+  {
+    tot_power.readOp.leakage += MAIN_MEM_PER_CHIP_STANDBY_CURRENT_mA * 1e-3 * g_tp.peri_global.Vdd / g_ip.nbanks;
+  }
+  
+  leak_power_subbank_closed_page = 
+    ((tot_power_row_predecode_blocks.readOp.leakage +
+      tot_power_bit_mux_predecode_blocks.readOp.leakage + 
+      tot_power_senseamp_mux_lev_1_predecode_blocks.readOp.leakage +
+      tot_power_senseamp_mux_lev_2_predecode_blocks.readOp.leakage +
+      tot_power_row_decoders.readOp.leakage +
+      tot_power_bit_mux_decoders.readOp.leakage +
+      tot_power_senseamp_mux_lev_1_decoders.readOp.leakage +
+      tot_power_senseamp_mux_lev_2_decoders.readOp.leakage) / number_mats +
+     leak_power_sense_amps_closed_page_state) * num_act_mats_hor_dir;
+  
+  leak_power_subbank_open_page =
+    ((tot_power_row_predecode_blocks.readOp.leakage +
+      tot_power_bit_mux_predecode_blocks.readOp.leakage + 
+      tot_power_senseamp_mux_lev_1_predecode_blocks.readOp.leakage +
+      tot_power_senseamp_mux_lev_2_predecode_blocks.readOp.leakage +
+      tot_power_row_decoders.readOp.leakage +
+      tot_power_bit_mux_decoders.readOp.leakage +
+      tot_power_senseamp_mux_lev_1_decoders.readOp.leakage +
+      tot_power_senseamp_mux_lev_2_decoders.readOp.leakage) / number_mats +
+     leak_power_sense_amps_open_page_state) * num_act_mats_hor_dir;
+  
+  leak_power_request_and_reply_networks =
+    tot_power_routing_to_bank.readOp.leakage + tot_power_crossbar.readOp.leakage +
+    tot_power_addr_horizontal_htree.readOp.leakage + tot_power_datain_horizontal_htree.readOp.leakage +
+    tot_power_dataout_horizontal_htree.readOp.leakage + tot_power_addr_vertical_htree.readOp.leakage +
+    tot_power_datain_vertical_htree.readOp.leakage + tot_power_dataout_vertical_htree.readOp.leakage;
+
+
+  if(flag_results_populate)
+  { //For the final solution, populate the ptr_results data structure
+    ptr_results->Ndwl = Ndwl;
+    ptr_results->Ndbl = Ndbl;
+    ptr_results->Nspd = Nspd;
+    ptr_results->deg_bitline_muxing = deg_bl_muxing;
+    ptr_results->Ndsam_lev_1 = Ndsam_lev_1;
+    ptr_results->Ndsam_lev_2 = Ndsam_lev_2;
+    ptr_results->number_activated_mats_horizontal_direction = num_act_mats_hor_dir;
+    ptr_results->number_subbanks   = number_mats / num_act_mats_hor_dir;
+    ptr_results->page_size_in_bits = num_do_b_mat * num_act_mats_hor_dir * Ndsam_lev_1 * Ndsam_lev_2;
+    ptr_results->delay_route_to_bank = delay_route_to_bank;
+    ptr_results->delay_crossbar = crossbar.delay;
+    ptr_results->delay_addr_din_horizontal_htree = delay_addr_din_horizontal_htree;
+    ptr_results->delay_addr_din_vertical_htree = delay_addr_din_vertical_htree;
+    ptr_results->delay_row_predecode_driver_and_block = max_delay_before_row_decoder -
+      (delay_route_to_bank + delay_addr_din_horizontal_htree + delay_addr_din_vertical_htree);
+    ptr_results->delay_row_decoder = _row_dec.delay;
+    ptr_results->delay_bitlines = delay_bitline;
+    ptr_results->delay_sense_amp = delay_sense_amp;
+    ptr_results->delay_subarray_output_driver = delay_subarray_output_driver;
+    ptr_results->delay_bit_mux_predecode_driver_and_block = max_delay_before_bit_mux_decoder -
+      (delay_route_to_bank + delay_addr_din_horizontal_htree + delay_addr_din_vertical_htree);
+    ptr_results->delay_bit_mux_decoder = _bit_mux_dec.delay;
+    ptr_results->delay_senseamp_mux_lev_1_predecode_driver_and_block = max_delay_before_senseamp_mux_lev_1_decoder -
+      (delay_route_to_bank + delay_addr_din_horizontal_htree + delay_addr_din_vertical_htree);
+    ptr_results->delay_senseamp_mux_lev_1_decoder = _senseamp_mux_lev_1_dec.delay;
+    ptr_results->delay_senseamp_mux_lev_2_predecode_driver_and_block = max_delay_before_senseamp_mux_lev_2_decoder -
+      (delay_route_to_bank + delay_addr_din_horizontal_htree + delay_addr_din_vertical_htree);
+    ptr_results->delay_senseamp_mux_lev_2_decoder = _senseamp_mux_lev_2_dec.delay;
+    ptr_results->delay_dout_vertical_htree = delay_dout_vertical_htree;
+    ptr_results->delay_dout_horizontal_htree = delay_dout_horizontal_htree;
+    ptr_results->delay_comparator = comparator_delay;
+    ptr_results->access_time = access_time;
+    ptr_results->cycle_time = cycle_time;
+    ptr_results->multisubbank_interleave_cycle_time = multisubbank_interleave_cycle_time;
+    ptr_results->delay_request_network = delay_request_network;
+    ptr_results->delay_inside_mat = delay_inside_mat;
+    ptr_results->delay_reply_network = delay_reply_network;
+    ptr_results->trcd = t_rcd;
+    ptr_results->cas_latency = cas_latency;
+    ptr_results->precharge_delay = precharge_delay;
+    ptr_results->dram_refresh_period = dram_refresh_period;
+    ptr_results->dram_array_availability = dram_array_availability;
+    ptr_results->power_routing_to_bank = tot_power_routing_to_bank;
+    ptr_results->power_addr_horizontal_htree = tot_power_addr_horizontal_htree;
+    ptr_results->power_datain_horizontal_htree = tot_power_datain_horizontal_htree;
+    ptr_results->power_dataout_horizontal_htree = tot_power_dataout_horizontal_htree;
+    ptr_results->power_addr_vertical_htree = tot_power_addr_vertical_htree;
+    ptr_results->power_datain_vertical_htree = tot_power_datain_vertical_htree;
+    ptr_results->power_row_predecoder_drivers = tot_power_row_predecode_block_drivers;
+    ptr_results->power_row_predecoder_blocks = tot_power_row_predecode_blocks;
+    ptr_results->power_row_decoders = tot_power_row_decoders;
+    ptr_results->power_bit_mux_predecoder_drivers = tot_power_bit_mux_predecode_block_drivers;
+    ptr_results->power_bit_mux_predecoder_blocks = tot_power_bit_mux_predecode_blocks;
+    ptr_results->power_bit_mux_decoders = tot_power_bit_mux_decoders;
+    ptr_results->power_senseamp_mux_lev_1_predecoder_drivers = tot_power_senseamp_mux_lev_1_predecode_block_drivers;
+    ptr_results->power_senseamp_mux_lev_1_predecoder_blocks = tot_power_senseamp_mux_lev_1_predecode_blocks;
+    ptr_results->power_senseamp_mux_lev_1_decoders = tot_power_senseamp_mux_lev_1_decoders;
+    ptr_results->power_senseamp_mux_lev_2_predecoder_drivers = tot_power_senseamp_mux_lev_2_predecode_block_drivers;
+    ptr_results->power_senseamp_mux_lev_2_predecoder_blocks = tot_power_senseamp_mux_lev_2_predecode_blocks;
+    ptr_results->power_senseamp_mux_lev_2_decoders = tot_power_senseamp_mux_lev_2_decoders;
+    ptr_results->power_bitlines = tot_power_bitlines;
+    ptr_results->power_sense_amps = tot_power_sense_amps;
+    ptr_results->power_prechg_eq_drivers = tot_power_bitlines_precharge_eq_driver;
+    ptr_results->power_output_drivers_at_subarray = tot_power_subarray_output_drivers;
+    ptr_results->power_dataout_vertical_htree = tot_power_dataout_vertical_htree;
+    ptr_results->power_comparators = tot_power_comparators;
+    ptr_results->power_crossbar    = tot_power_crossbar;
+    ptr_results->total_power = tot_power;
+    ptr_results->dyn_read_energy_from_closed_page = dyn_read_energy_from_closed_page;
+    ptr_results->dyn_read_energy_from_open_page = dyn_read_energy_from_open_page;
+    ptr_results->leak_power_subbank_closed_page = leak_power_subbank_closed_page;
+    ptr_results->leak_power_subbank_open_page = leak_power_subbank_open_page;
+    ptr_results->leak_power_request_and_reply_networks = leak_power_request_and_reply_networks;
+    ptr_results->area = all_banks.h * all_banks.w * 1e-6;//in mm2
+    ptr_results->all_banks_height = all_banks.h;
+    ptr_results->all_banks_width = all_banks.w;    
+    ptr_results->bank_height = bank.h;
+    ptr_results->bank_width = bank.w;
+    ptr_results->subarray_memory_cell_area_height = subarray.get_h();
+    ptr_results->subarray_memory_cell_area_width  = subarray.get_w();
+    ptr_results->mat_height = mat.h;
+    ptr_results->mat_width = mat.w;
+    ptr_results->routing_area_height_within_bank = bank.h - num_mats_v_dir * mat.h;
+    ptr_results->routing_area_width_within_bank = bank.w - num_mats_h_dir *  mat.w;
+    ptr_results->area_efficiency = area_all_dataramcells * 100 / (all_banks.h * all_banks.w);
+    ptr_results->perc_power_dyn_routing_to_bank = ptr_results->power_routing_to_bank.readOp.dynamic * 100 / 
+      ptr_fin_res->power.readOp.dynamic;
+    ptr_results->perc_power_dyn_addr_horizontal_htree = 
+      ptr_results->power_addr_horizontal_htree.readOp.dynamic * 100 / 
+      ptr_fin_res->power.readOp.dynamic;
+    ptr_results->perc_power_dyn_dataout_horizontal_htree = 
+      ptr_results->power_dataout_horizontal_htree.readOp.dynamic * 100 / 
+      ptr_fin_res->power.readOp.dynamic;
+    ptr_results->perc_power_dyn_addr_vertical_htree = 
+      ptr_results->power_addr_vertical_htree.readOp.dynamic * 100 /  ptr_fin_res->power.readOp.dynamic;
+    ptr_results->perc_power_dyn_row_predecoder_drivers =
+      ptr_results->power_row_predecoder_drivers.readOp.dynamic * 100 / ptr_fin_res->power.readOp.dynamic;
+    ptr_results->perc_power_dyn_row_predecoder_blocks =
+      ptr_results->power_row_predecoder_blocks.readOp.dynamic * 100 / ptr_fin_res->power.readOp.dynamic;
+    ptr_results->perc_power_dyn_row_decoders =
+      ptr_results->power_row_decoders.readOp.dynamic * 100 / ptr_fin_res->power.readOp.dynamic;
+    ptr_results->perc_power_dyn_bit_mux_predecoder_drivers =
+      ptr_results->power_bit_mux_predecoder_drivers.readOp.dynamic * 100 / ptr_fin_res->power.readOp.dynamic;
+    ptr_results->perc_power_dyn_bit_mux_predecoder_blocks =
+      ptr_results->power_bit_mux_predecoder_blocks.readOp.dynamic * 100 / ptr_fin_res->power.readOp.dynamic;
+    ptr_results->perc_power_dyn_bit_mux_decoders =
+      ptr_results->power_bit_mux_decoders.readOp.dynamic * 100 / ptr_fin_res->power.readOp.dynamic;
+    ptr_results->perc_power_dyn_senseamp_mux_lev_1_predecoder_drivers = 
+      ptr_results->power_senseamp_mux_lev_1_predecoder_drivers.readOp.dynamic * 100 / ptr_fin_res->power.readOp.dynamic;
+    ptr_results->perc_power_dyn_senseamp_mux_lev_1_predecoder_blocks =
+      ptr_results->power_senseamp_mux_lev_1_predecoder_blocks.readOp.dynamic * 100 / ptr_fin_res->power.readOp.dynamic;
+    ptr_results->perc_power_dyn_senseamp_mux_lev_1_decoders =
+      ptr_results->power_senseamp_mux_lev_1_decoders.readOp.dynamic * 100 / ptr_fin_res->power.readOp.dynamic;
+    ptr_results->perc_power_dyn_senseamp_mux_lev_2_predecoder_drivers = 
+      ptr_results->power_senseamp_mux_lev_2_predecoder_drivers.readOp.dynamic * 100 / ptr_fin_res->power.readOp.dynamic;
+    ptr_results->perc_power_dyn_senseamp_mux_lev_2_predecoder_blocks =
+      ptr_results->power_senseamp_mux_lev_2_predecoder_blocks.readOp.dynamic * 100 / ptr_fin_res->power.readOp.dynamic;
+    ptr_results->perc_power_dyn_senseamp_mux_lev_2_decoders =
+      ptr_results->power_senseamp_mux_lev_2_decoders.readOp.dynamic * 100 / ptr_fin_res->power.readOp.dynamic;
+    ptr_results->perc_power_dyn_bitlines = 
+      ptr_results->power_bitlines.readOp.dynamic * 100 / ptr_fin_res->power.readOp.dynamic;
+    ptr_results->perc_power_dyn_sense_amps =
+      ptr_results->power_sense_amps.readOp.dynamic * 100 / ptr_fin_res->power.readOp.dynamic;
+    ptr_results->perc_power_dyn_prechg_eq_drivers = 
+      ptr_results->power_prechg_eq_drivers.readOp.dynamic * 100 / ptr_fin_res->power.readOp.dynamic;   
+    ptr_results->perc_power_dyn_subarray_output_drivers =
+      ptr_results->power_output_drivers_at_subarray.readOp.dynamic * 100 / ptr_fin_res->power.readOp.dynamic;
+    ptr_results->perc_power_dyn_dataout_vertical_htree =
+      ptr_results->power_dataout_vertical_htree.readOp.dynamic * 100 / ptr_fin_res->power.readOp.dynamic;
+    ptr_results->perc_power_dyn_comparators =
+      ptr_results->power_comparators.readOp.dynamic * 100 / ptr_fin_res->power.readOp.dynamic;
+    ptr_results->perc_power_dyn_crossbar =
+      ptr_results->power_crossbar.readOp.dynamic * 100 / ptr_fin_res->power.readOp.dynamic;
+    ptr_results->activate_energy = activate_energy;
+    ptr_results->read_energy = read_energy;
+    ptr_results->write_energy = write_energy;
+    ptr_results->precharge_energy = precharge_energy;
+    
+    ptr_results->perc_power_dyn_spent_outside_mats = 
+      ptr_results->perc_power_dyn_routing_to_bank + ptr_results->perc_power_dyn_addr_horizontal_htree +
+      ptr_results->perc_power_dyn_addr_vertical_htree + ptr_results->perc_power_dyn_dataout_vertical_htree +
+      ptr_results->perc_power_dyn_dataout_horizontal_htree;
+
+    ptr_results->perc_power_leak_routing_to_bank = 
+      ptr_results->power_routing_to_bank.readOp.leakage * 100 / ptr_fin_res->power.readOp.leakage;
+    ptr_results->perc_power_leak_addr_horizontal_htree = 
+      ptr_results->power_addr_horizontal_htree.readOp.leakage * 100 / ptr_fin_res->power.readOp.leakage;
+    ptr_results->perc_power_leak_datain_horizontal_htree = 
+      ptr_results->power_datain_horizontal_htree.readOp.leakage * 100 / ptr_fin_res->power.readOp.leakage;
+    ptr_results->perc_power_leak_dataout_horizontal_htree = 
+      ptr_results->power_dataout_horizontal_htree.readOp.leakage * 100 / ptr_fin_res->power.readOp.leakage;
+    ptr_results->perc_power_leak_addr_vertical_htree = 
+      ptr_results->power_addr_vertical_htree.readOp.leakage * 100 / ptr_fin_res->power.readOp.leakage;
+    ptr_results->perc_power_leak_datain_vertical_htree = 
+      ptr_results->power_datain_vertical_htree.readOp.leakage * 100 / ptr_fin_res->power.readOp.leakage;
+    ptr_results->perc_power_leak_row_predecoder_drivers =
+      ptr_results->power_row_predecoder_drivers.readOp.leakage * 100 / ptr_fin_res->power.readOp.leakage;
+    ptr_results->perc_power_leak_row_predecoder_blocks =
+      ptr_results->power_row_predecoder_blocks.readOp.leakage * 100 / ptr_fin_res->power.readOp.leakage;
+    ptr_results->perc_power_leak_row_decoders =
+      ptr_results->power_row_decoders.readOp.leakage * 100 / ptr_fin_res->power.readOp.leakage;
+    ptr_results->perc_power_leak_bit_mux_predecoder_drivers =
+      ptr_results->power_bit_mux_predecoder_drivers.readOp.leakage * 100 / ptr_fin_res->power.readOp.leakage;
+    ptr_results->perc_power_leak_bit_mux_predecoder_blocks =
+      ptr_results->power_bit_mux_predecoder_blocks.readOp.leakage * 100 / ptr_fin_res->power.readOp.leakage;
+    ptr_results->perc_power_leak_bit_mux_decoders =
+      ptr_results->power_bit_mux_decoders.readOp.leakage * 100 / ptr_fin_res->power.readOp.leakage;
+    ptr_results->perc_power_leak_senseamp_mux_lev_1_predecoder_drivers = 
+      ptr_results->power_senseamp_mux_lev_1_predecoder_drivers.readOp.leakage * 100 / ptr_fin_res->power.readOp.leakage;
+    ptr_results->perc_power_leak_senseamp_mux_lev_1_predecoder_blocks =
+      ptr_results->power_senseamp_mux_lev_1_predecoder_blocks.readOp.leakage * 100 / ptr_fin_res->power.readOp.leakage;
+    ptr_results->perc_power_leak_senseamp_mux_lev_1_decoders =
+      ptr_results->power_senseamp_mux_lev_1_decoders.readOp.leakage * 100 / ptr_fin_res->power.readOp.leakage;
+    ptr_results->perc_power_leak_senseamp_mux_lev_2_predecoder_drivers = 
+      ptr_results->power_senseamp_mux_lev_2_predecoder_drivers.readOp.leakage * 100 / ptr_fin_res->power.readOp.leakage;
+    ptr_results->perc_power_leak_senseamp_mux_lev_2_predecoder_blocks =
+      ptr_results->power_senseamp_mux_lev_2_predecoder_blocks.readOp.leakage * 100 / ptr_fin_res->power.readOp.leakage;
+    ptr_results->perc_power_leak_senseamp_mux_lev_2_decoders =
+      ptr_results->power_senseamp_mux_lev_2_decoders.readOp.leakage * 100 / ptr_fin_res->power.readOp.leakage;
+    ptr_results->perc_power_leak_bitlines = 
+      ptr_results->power_bitlines.readOp.leakage * 100 / ptr_fin_res->power.readOp.leakage;
+    ptr_results->perc_power_leak_sense_amps =
+      ptr_results->power_sense_amps.readOp.leakage * 100 / ptr_fin_res->power.readOp.leakage;
+    ptr_results->perc_power_leak_prechg_eq_drivers = 
+      ptr_results->power_prechg_eq_drivers.readOp.leakage * 100 / ptr_fin_res->power.readOp.leakage;    
+    ptr_results->perc_power_leak_subarray_output_drivers =
+      ptr_results->power_output_drivers_at_subarray.readOp.leakage * 100 / ptr_fin_res->power.readOp.leakage;
+    ptr_results->perc_power_leak_dataout_vertical_htree =
+      ptr_results->power_dataout_vertical_htree.readOp.leakage * 100 / ptr_fin_res->power.readOp.leakage;
+    ptr_results->perc_power_leak_comparators =
+      ptr_results->power_comparators.readOp.leakage * 100 / ptr_fin_res->power.readOp.leakage;
+    ptr_results->perc_power_leak_crossbar =
+      ptr_results->power_crossbar.readOp.leakage * 100 / ptr_fin_res->power.readOp.leakage;
+    ptr_results->refresh_power = refresh_power;
+    ptr_results->perc_leak_mats =
+      ptr_results->perc_power_leak_row_predecoder_drivers +
+      ptr_results->perc_power_leak_row_predecoder_blocks +
+      ptr_results->perc_power_leak_row_decoders +
+      ptr_results->perc_power_leak_bit_mux_predecoder_drivers +
+      ptr_results->perc_power_leak_bit_mux_predecoder_blocks +
+      ptr_results->perc_power_leak_bit_mux_decoders +
+      ptr_results->perc_power_leak_senseamp_mux_lev_1_predecoder_drivers +
+      ptr_results->perc_power_leak_senseamp_mux_lev_2_predecoder_drivers +
+      ptr_results->perc_power_leak_senseamp_mux_lev_1_predecoder_blocks +
+      ptr_results->perc_power_leak_senseamp_mux_lev_2_predecoder_blocks +
+      ptr_results->perc_power_leak_senseamp_mux_lev_1_decoders +
+      ptr_results->perc_power_leak_senseamp_mux_lev_2_decoders +
+      ptr_results->perc_power_leak_bitlines +
+      ptr_results->perc_power_leak_sense_amps +
+      ptr_results->perc_power_leak_subarray_output_drivers +
+      ptr_results->perc_power_leak_comparators;
+    ptr_results->perc_active_mats = (double) (num_act_mats_hor_dir) * 100 / (double) (number_mats);
+  }
+  else
+  {
+    ptr_array->Ndwl = Ndwl;
+    ptr_array->Ndbl = Ndbl;
+    ptr_array->Nspd = Nspd;
+    ptr_array->deg_bitline_muxing = deg_bl_muxing;
+    ptr_array->Ndsam_lev_1 = Ndsam_lev_1;
+    ptr_array->Ndsam_lev_2 = Ndsam_lev_2;
+    ptr_array->access_time = access_time;
+    ptr_array->cycle_time = cycle_time;
+    ptr_array->multisubbank_interleave_cycle_time = multisubbank_interleave_cycle_time;
+    ptr_array->area_ram_cells = area_all_dataramcells;
+    ptr_array->area   = all_banks.h * all_banks.w;
+    ptr_array->height = all_banks.h;
+    ptr_array->width  = all_banks.w;
+    ptr_array->power  = tot_power;
+    ptr_array->delay_senseamp_mux_decoder =
+      MAX(max_delay_before_senseamp_mux_lev_1_decoder + _senseamp_mux_lev_1_dec.delay,
+          max_delay_before_senseamp_mux_lev_2_decoder + _senseamp_mux_lev_2_dec.delay);
+    ptr_array->delay_before_subarray_output_driver = delay_before_subarray_output_driver;
+    ptr_array->delay_from_subarray_output_driver_to_output = delay_from_subarray_output_driver_to_output;
+  }
+
+  return true;
+}
+
+
+void do_it(final_results *fin_res)
+{
+  bool   is_dram = false;
+  bool   is_valid_partition;
+  int    pure_ram;
+  double max_efficiency, min_efficiency, area, efficiency;
+  int    weight_dynamic_energy, weight_leakage_power, weight_dynamic_power, weight_cycle_time;
+  double min_acc_time, min_acc_time_in_best_area_solutions,
+         percent_diff_efficiency_wrt_max_efficiency, percent_diff_acc_time_wrt_min_acc_time, 
+         perc_away_from_aspect_ratio, aspect_ratio, perc_wasted_area;
+  double best_acc_time_tag_arr;
+  double stacked_die_allot_area;
+
+  ArrayEdgeToBankEdgeHtreeSizing array_edge_to_bank_edge_htree_sizing;
+  BankHtreeSizing bank_htree_sizing;
+
+  list<mem_array *> tag_arr (0);
+  list<mem_array *> data_arr(0);
+  list<mem_array *>::iterator best_acc_time_tag_arr_iter;
+  list<mem_array *>::iterator miter;
+  list<solution *>::iterator siter;
+  list<solution *> best_sol(1, new solution);
+  list<solution *> best_delay_solution(0);  // best delay solution within best area solutions
+  
+  pure_ram    = !g_ip.is_cache;
+  result_type result;
+  result.cycle_time = BIGNUM;
+  result.access_time = BIGNUM;
+  result.total_power.readOp.dynamic = result.total_power.readOp.leakage
+                                    = result.total_power.writeOp.dynamic
+                                    = result.total_power.writeOp.leakage
+                                    = BIGNUM;
+  result.max_access_time = 0;
+  result.min_access_time = BIGNUM;
+  min_acc_time = BIGNUM;
+  min_acc_time_in_best_area_solutions = BIGNUM;
+  result.max_cycle_time = 0;
+  result.min_cycle_time = BIGNUM;
+  result.max_leakage_power = 0;
+  result.min_leakage_power = BIGNUM;
+  result.max_dynamic_power = 0;
+  result.min_dynamic_power = BIGNUM;
+  result.max_dynamic_energy = 0;
+  result.min_dynamic_energy = BIGNUM;
   max_efficiency = 1.0 / BIGNUM;
   min_efficiency = BIGNUM;
-  arearesult->efficiency = 1.0 / BIGNUM;
-  max_aspect_ratio_total = 1.0 / BIGNUM;
-  arearesult->aspect_ratio_total = BIGNUM;
+  best_acc_time_tag_arr = BIGNUM;
 
-  
+  fin_res->tag_array.access_time = 0;
+  fin_res->tag_array.Ndwl = 0;
+  fin_res->tag_array.Ndbl = 0;
+  fin_res->tag_array.Nspd = 0;
+  fin_res->tag_array.deg_bitline_muxing = 0;
+  fin_res->tag_array.Ndsam_lev_1 = 0;
+  fin_res->tag_array.Ndsam_lev_2 = 0;
 
-  for (counter = 0; counter < 2; counter++)
+
+  // distribute calculate_time() execution into multiple threads
+  calc_time_mt_wrapper_struct * calc_array = new calc_time_mt_wrapper_struct[nthreads];
+  pthread_t threads[nthreads];
+
+  for (uint32_t t = 0; t < nthreads; t++)
+  {
+    calc_array[t].tid         = t;
+    calc_array[t].pure_ram    = pure_ram;
+  }
+
+  bool     is_tag;
+  uint32_t ram_cell_tech_type;
+
+  //If it's a cache, first calculate the area, delay and power for all tag array partitions.
+  if (!pure_ram)
+  { //cache
+    is_tag              = true;
+    ram_cell_tech_type  = g_ip.tag_arr_ram_cell_tech_type;
+    is_dram             = ((ram_cell_tech_type == 3) || (ram_cell_tech_type == 4));
+    init_tech_params(g_ip.F_sz_um, is_tag);
+    array_edge_to_bank_edge_htree_sizing.compute_widths(is_dram);
+    bank_htree_sizing.compute_widths(is_dram);
+    
+    for (uint32_t t = 0; t < nthreads; t++)
     {
-      if (!parameters->fully_assoc)
-	{
-	  /* Set associative or direct map cache model */
-	  
-	  /* 
-	  Varies the number of sets mapped to each wordline. 
-	  This makes each wordline longer but reduces the length of the bitlines.
-	  It also requires extra muxes before the sense amplifiers to select the right set.
-	  */
-	  //v4.1: We now consider fractions of Nspd while exploring the partitioning
-      //space. The lower bound of Nspd is BITOUT /(parameters->block_size*8).
-	  for (Nspd = (double)(BITOUT)/(double)(parameters->block_size*8); Nspd <= MAXDATASPD; Nspd = Nspd * 2) 
-	    {
-		  /* 
-		  Varies the number of wordline segments, 
-		  i.e. into how many "sub"-wordlines each wordline is split. 
-		  Increasing the number of segments, increases the number of wordline drivers, 
-		  but makes each segment shorter and faster.
-		  */
-	      for (Ndwl = 1; Ndwl <= MAXDATAN; Ndwl = Ndwl * 2) 
-		{
-		  /* 
-		  Varies the number of bitline segments,
-		  i.e. into how many "sub"-bitlines each bitline is split.
-		  Increasing the number of segments increases the number of sense amplifiers needed, 
-		  but makes each bitline segment shorter and faster. 
-		  */
-		  for (Ndbl = 1; Ndbl <= MAXDATAN; Ndbl = Ndbl * 2) 
-		    {
-			  /*
-			  Varies the number of sets per wordline, but for the tag array
-			  */
-				if(data_organizational_parameters_valid
-				      (parameters->block_size,
-				       parameters->tag_associativity,
-				       parameters->cache_size,
-					   Ndwl, Ndbl,Nspd,
-				       parameters->fully_assoc,(*NSubbanks)))
-				{
-					tag_iteration_counter = 0;
-					bank_h = 0;
-				    bank_v = 0;
-
-                    if (8 * parameters->block_size /
-                    BITOUT == 1 && Nspd == 1)
-                    {
-                        muxover = 1;
-                    }
-                    else {
-                      if (Nspd > MAX_COL_MUX)
-                      {
-                        muxover = 8 * parameters->block_size / BITOUT;
-                      }
-                      else {
-                        if (8 * parameters->block_size *
-                        Nspd / BITOUT >
-                        MAX_COL_MUX)
-                        {
-                          muxover = (8 * parameters->block_size / BITOUT) / 
-                                  (MAX_COL_MUX / (Nspd));
-                        }
-                        else {
-                          muxover = 1;
-                        }
-                      }
-					}
-
-					reset_data_device_widths();
-					compute_device_widths(parameters->cache_size, parameters->block_size, parameters->tag_associativity,
-									  parameters->fully_assoc,Ndwl,Ndbl,Nspd);
-					if(*NSubbanks == 1.0) {
-
-						reset_powerDef(&total_address_routing_power);
-						reset_powerDef(&subbank_address_routing_power);
-
-						inrisetime = addr_inrisetime = 0;
-
-						/* Calculate data side of cache */
-						Tpre = 0;
-
-						max_delay = 0;
-						reset_powerDef(&decoder_data_power);
-						decoder_data =
-							decoder_delay (parameters->cache_size,
-								parameters->block_size,
-								parameters->data_associativity,
-								Ndwl, Ndbl, Nspd,
-								*NSubbanks,
-								&decoder_data_driver,
-								&decoder_data_3to8,
-								&decoder_data_inv,
-								inrisetime,
-								&outrisetime,
-								&data_nor_inputs,
-								&decoder_data_power);
-
-						Tpre = decoder_data;
-						max_delay = MAX (max_delay, decoder_data);
-						inrisetime = outrisetime;
-					   
-						reset_powerDef(&wordline_data_power);
-						wordline_data =
-							wordline_delay (
-								parameters->cache_size,
-								parameters->block_size,
-								parameters->data_associativity,
-								Ndwl,Ndbl,Nspd,
-								inrisetime,
-								&outrisetime,
-								&wordline_data_power);
-				      
-						inrisetime = outrisetime;
-						max_delay = MAX (max_delay, wordline_data);
-						/*dt: assuming precharge delay is decoder + wordline delay */
-						Tpre += wordline_data;
-
-						reset_powerDef(&bitline_data_power);
-						bitline_data =
-							bitline_delay (parameters->cache_size,
-								parameters->data_associativity,
-								parameters->block_size,
-								Ndwl, Ndbl, Nspd,
-								inrisetime,
-								&outrisetime,
-								&bitline_data_power, Tpre);
-				      
-					  
-
-						inrisetime = outrisetime;
-						max_delay = MAX (max_delay, bitline_data);
-
-				      
-						reset_powerDef(&sense_amp_data_power);
-						sense_amp_data =
-						sense_amp_delay (parameters->cache_size,
-								parameters->block_size,
-								parameters->data_associativity,
-								Ndwl,Ndbl, Nspd,
-								inrisetime,
-								&outrisetime,
-								&sense_amp_data_power);
-						
-						max_delay = MAX (max_delay, sense_amp_data);
-						
-
-						inrisetime = outrisetime;
-
-						reset_powerDef(&data_output_power);
-						data_output =
-							dataoutput_delay (
-							  parameters->cache_size,
-							  parameters->block_size,
-							  parameters->data_associativity,
-							  parameters->fully_assoc,
-							  Ndbl, Nspd, Ndwl,
-							  inrisetime,
-							  &outrisetime,
-							  &data_output_power);
-				      
-						max_delay = MAX (max_delay, data_output);
-						inrisetime = outrisetime;
-
-						reset_powerDef(&total_out_driver_power);
-
-						subbank_v = 0;
-						subbank_h = 0;
-
-						inrisetime = outrisetime;
-						max_delay = MAX (max_delay, total_out_driver);
-
-						/* if the associativity is 1, the data output can come right
-				         after the sense amp.   Otherwise, it has to wait until 
-				         the data access has been done. 
-						*/
-						if (parameters->data_associativity == 1)
-						{
-							before_mux =
-							subbank_address_routing_delay +
-							decoder_data + wordline_data +
-							bitline_data + sense_amp_data +
-							total_out_driver + data_output;
-							after_mux = 0;
-						}
-						else {
-							before_mux =
-							subbank_address_routing_delay +
-							decoder_data + wordline_data +
-							bitline_data + sense_amp_data;
-							after_mux =
-							data_output + total_out_driver;
-						}
-					}
-
-			for (Ntspd = 1; Ntspd <= MAXTAGSPD; Ntspd = Ntspd * 2)
-			{
-			  /*
-			  Varies the number of wordline segments, but for the tag array
-			  */
-			  /*dt: Ntwl is no longer limited to one. We assume a wire-or for the valid and select lines. */
-			    for (Ntwl = 1; Ntwl <= MAXTAGN; Ntwl = Ntwl * 2)
-			    {
-				  /*
-				  Varies the number of bitline segments, but for the array
-				  */
-			      for (Ntbl = 1; Ntbl <= MAXTAGN; Ntbl = Ntbl * 2)
-				  {
-
-					if (tag_organizational_parameters_valid
-				      (parameters->block_size,
-				       parameters->tag_associativity,
-				       parameters->cache_size,
-					   Ntwl, Ntbl, Ntspd,
-				       parameters->fully_assoc,(*NSubbanks)))
-				    {
-						tag_iteration_counter++;
-
-						reset_tag_device_widths();
-					
-						compute_tag_device_widths(parameters->cache_size, parameters->block_size, parameters->tag_associativity,
-						  											Ntspd,Ntwl,Ntbl,(*NSubbanks));
-
-				      area_subbanked (ADDRESS_BITS, BITOUT,
-						      parameters->num_readwrite_ports,
-						      parameters->num_read_ports,
-						      parameters->num_write_ports,
-							  Ndbl, Ndwl, Nspd, 
-							  Ntbl, Ntwl,Ntspd,
-							  *NSubbanks,
-						      parameters,
-						      &arearesult_subbanked_temp,
-						      &arearesult_temp);
-
-				      Subbank_Efficiency =
-					(area_all_dataramcells +
-					 area_all_tagramcells) * 100 /
-					(arearesult_temp.totalarea /
-					 100000000.0);
-					
-					  //v4.1: No longer using calculate_area function as area has already been
-					  //computed for the given tech node
-				      /*Total_Efficiency =
-					(*NSubbanks) *
-					(area_all_dataramcells +
-					 area_all_tagramcells) * 100 /
-					(calculate_area
-					 (arearesult_subbanked_temp,
-					  parameters->fudgefactor) /
-					 100000000.0);*/ 
-
-					  Total_Efficiency =
-					(*NSubbanks) *
-					(area_all_dataramcells +
-					 area_all_tagramcells) * 100 /
-					(arearesult_subbanked_temp.height * arearesult_subbanked_temp.width/
-					 100000000.0);
-
-				      //efficiency = Subbank_Efficiency;
-				      efficiency = Total_Efficiency;
-
-				      arearesult_temp.efficiency = efficiency;
-				      aspect_ratio_total_temp =
-					(arearesult_subbanked_temp.height /
-					 arearesult_subbanked_temp.width);
-				      aspect_ratio_total_temp =
-					(aspect_ratio_total_temp > 1.0) ? 
-						(aspect_ratio_total_temp) : 1.0 / (aspect_ratio_total_temp);
-
-				      arearesult_temp.aspect_ratio_total = aspect_ratio_total_temp;
-
-					  if (*NSubbanks > 1) {
-
-				      subbank_dim (parameters->cache_size,
-						   parameters->block_size,
-						   parameters->data_associativity,
-						   parameters->fully_assoc,
-						   Ndbl, Ndwl, Nspd, Ntbl,
-						   Ntwl, Ntspd, *NSubbanks,
-						   &bank_h, &bank_v);
-
-					  reset_powerDef(&total_address_routing_power);
-
-				      subbanks_routing_power (
-								  parameters->fully_assoc,
-							      parameters->data_associativity,
-							      *NSubbanks,
-							      &bank_h,
-							      &bank_v,
-							      &total_address_routing_power);
-
-					  reset_powerDef(&subbank_address_routing_power);
-					  /*dt: this has to be reset on every loop iteration, or else we implicitly reuse the risetime from the end
-						of the last loop iteration!*/
-					  inrisetime = addr_inrisetime = 0;
-				      if (*NSubbanks > 2)
-					{
-					   subbank_address_routing_delay =
-					    address_routing_delay
-					    (parameters->cache_size,
-					     parameters->block_size,
-					     parameters->data_associativity,
-					     parameters->fully_assoc, Ndwl,
-					     Ndbl, Nspd, Ntwl, Ntbl, Ntspd,
-					     NSubbanks, &outrisetime,
-					     &subbank_address_routing_power);
-						
-					   /*dt: moved this here, because we only have extra signal slope if there's
-						 something before the decoder */
-					   inrisetime = outrisetime;
-				       addr_inrisetime = outrisetime;
-					}
-					 
-					  
-				      /* Calculate data side of cache */
-					  Tpre = 0;
-
-				      max_delay = 0;
-				      reset_powerDef(&decoder_data_power);
-				      decoder_data =
-					decoder_delay (parameters->cache_size,
-						       parameters->block_size,
-						       parameters->data_associativity,
-							   Ndwl, Ndbl, Nspd,
-							   *NSubbanks,
-						       &decoder_data_driver,
-						       &decoder_data_3to8,
-						       &decoder_data_inv,
-						       inrisetime,
-						       &outrisetime,
-						       &data_nor_inputs,
-						       &decoder_data_power);
-
-					  Tpre = decoder_data;
-				      max_delay = MAX (max_delay, decoder_data);
-				      inrisetime = outrisetime;
-				   
-				      reset_powerDef(&wordline_data_power);
-				      wordline_data =
-					wordline_delay (
-							parameters->cache_size,
-							parameters->block_size,
-							parameters->data_associativity,
-							Ndwl,Ndbl,Nspd,
-							inrisetime,
-							&outrisetime,
-							&wordline_data_power);
-				      
-				      inrisetime = outrisetime;
-				      max_delay = MAX (max_delay, wordline_data);
-					  /*dt: assuming precharge delay is decoder + wordline delay */
-					  Tpre += wordline_data;
-
-				      reset_powerDef(&bitline_data_power);
-				      bitline_data =
-					bitline_delay (parameters->cache_size,
-						       parameters->data_associativity,
-						       parameters->block_size,
-						       Ndwl, Ndbl, Nspd,
-						       inrisetime,
-						       &outrisetime,
-						       &bitline_data_power, Tpre);
-				      
-					  
-
-				      inrisetime = outrisetime;
-				      max_delay = MAX (max_delay, bitline_data);
-
-				      
-						reset_powerDef(&sense_amp_data_power);
-						sense_amp_data =
-							sense_amp_delay (parameters->cache_size,
-								parameters->block_size,
-								parameters->data_associativity,
-								Ndwl,Ndbl, Nspd,
-								inrisetime,
-								&outrisetime,
-								&sense_amp_data_power);
-						
-						max_delay = MAX (max_delay, sense_amp_data);
-				      
-
-				      inrisetime = outrisetime;
-
-				      reset_powerDef(&data_output_power);
-				      data_output =
-					dataoutput_delay (
-							  parameters->cache_size,
-							  parameters->block_size,
-							  parameters->data_associativity,
-							  parameters->fully_assoc,
-							  Ndbl, Nspd, Ndwl,
-							  inrisetime,
-							  &outrisetime,
-							  &data_output_power);
-				      
-				      max_delay = MAX (max_delay, data_output);
-				      inrisetime = outrisetime;
-
-				      reset_powerDef(&total_out_driver_power);
-
-				      subbank_v = 0;
-				      subbank_h = 0;
-
-
-				      subbank_routing_length (
-								  parameters->cache_size,
-							      parameters->block_size,
-							      parameters->data_associativity,
-							      parameters->fully_assoc,
-							      Ndbl, Nspd,
-							      Ndwl, Ntbl,
-							      Ntwl, Ntspd,
-							      *NSubbanks,
-							      &subbank_v,
-							      &subbank_h);
-
-				      if (*NSubbanks > 2)
-					{
-					  total_out_driver =
-					    senseext_driver_delay
-					    (
-					     parameters->data_associativity,
-					     parameters->fully_assoc,
-					     inrisetime, &outrisetime,
-					     subbank_v, subbank_h,
-					     &total_out_driver_power);
-					}
-				      
-				      inrisetime = outrisetime;
-				      max_delay = MAX (max_delay, total_out_driver);
-
-				      /* if the associativity is 1, the data output can come right
-				         after the sense amp.   Otherwise, it has to wait until 
-				         the data access has been done. */
-
-				      if (parameters->data_associativity == 1)
-					{
-					  before_mux =
-					    subbank_address_routing_delay +
-					    decoder_data + wordline_data +
-					    bitline_data + sense_amp_data +
-					    total_out_driver + data_output;
-					  after_mux = 0;
-					}
-				      else
-					{
-					  before_mux =
-					    subbank_address_routing_delay +
-					    decoder_data + wordline_data +
-					    bitline_data + sense_amp_data;
-					  after_mux =
-					    data_output + total_out_driver;
-					}
-				}
-
-				      /*
-				       * Now worry about the tag side.
-				       */
-
-
-				      reset_powerDef(&decoder_tag_power);
-					  if(tag_iteration_counter < MAX_CACHE_ENTRIES && valid_tag_cache_entries[tag_iteration_counter] == TRUE) {
-						  current_cache_entry = cached_tag_calculations[tag_iteration_counter];
-						  decoder_tag = current_cache_entry.decoder.delay;
-						  copy_powerDef(&decoder_tag_power,current_cache_entry.decoder.power);
-					  }
-					  else {
-						decoder_tag =
-							decoder_tag_delay (
-								parameters->cache_size,
-								parameters->block_size,
-								parameters->tag_associativity,
-								Ntwl, Ntbl, Ntspd,
-								*NSubbanks,
-								&decoder_tag_driver,
-								&decoder_tag_3to8,
-								&decoder_tag_inv,
-								addr_inrisetime,
-								&outrisetime,
-								&tag_nor_inputs,
-								&decoder_tag_power);
-
-						cached_tag_calculations[tag_iteration_counter].decoder.delay = decoder_tag;
-						copy_powerDef(
-							&(cached_tag_calculations[tag_iteration_counter].decoder.power)
-							,decoder_tag_power);
-
-							
-
-					  }
-				      max_delay =
-					MAX (max_delay, decoder_tag);
-				      Tpre_tag = decoder_tag;
-				      inrisetime = outrisetime;
-
-				      reset_powerDef(&wordline_tag_power);
-					  if(tag_iteration_counter < MAX_CACHE_ENTRIES && valid_tag_cache_entries[tag_iteration_counter] == TRUE) {
-						  current_cache_entry = cached_tag_calculations[tag_iteration_counter];
-						  wordline_tag = current_cache_entry.wordline.delay;
-						  copy_powerDef(&wordline_tag_power,current_cache_entry.wordline.power);
-					  }
-					  else {
-						wordline_tag =
-							wordline_tag_delay (
-									parameters->cache_size,
-									parameters->block_size,
-									parameters->tag_associativity,
-									Ntspd, Ntwl, Ntbl,
-									*NSubbanks,
-									inrisetime,
-									&outrisetime,
-									&wordline_tag_power);
-
-						cached_tag_calculations[tag_iteration_counter].wordline.delay = wordline_tag;
-						copy_powerDef(
-							&(cached_tag_calculations[tag_iteration_counter].wordline.power)
-							,wordline_tag_power);
-					  }
-				      max_delay =
-					MAX (max_delay, wordline_tag);
-				      inrisetime = outrisetime;
-					  Tpre_tag += wordline_tag;
-
-				      reset_powerDef(&bitline_tag_power);
-					  if(tag_iteration_counter < MAX_CACHE_ENTRIES && valid_tag_cache_entries[tag_iteration_counter] == TRUE ) {
-						  current_cache_entry = cached_tag_calculations[tag_iteration_counter];
-						  bitline_tag = current_cache_entry.bitline.delay;
-						  copy_powerDef(&bitline_tag_power,current_cache_entry.bitline.power);
-					  }
-					  else {
-						bitline_tag =
-							bitline_tag_delay (
-								parameters->cache_size,
-								parameters->tag_associativity,
-								parameters->block_size,
-								Ntwl,Ntbl, Ntspd,
-								*NSubbanks,
-								inrisetime,
-								&outrisetime,
-								&bitline_tag_power, Tpre_tag);
-
-						cached_tag_calculations[tag_iteration_counter].bitline.delay = bitline_tag;
-						copy_powerDef(
-							&(cached_tag_calculations[tag_iteration_counter].bitline.power)
-							,bitline_tag_power);
-					  }
-				      max_delay =
-					MAX (max_delay, bitline_tag);
-				      inrisetime = outrisetime;
-				      
-					  reset_powerDef(&sense_amp_tag_power);
-					  if(valid_tag_cache_entries[tag_iteration_counter] == TRUE) {
-						  current_cache_entry = cached_tag_calculations[tag_iteration_counter];
-						  sense_amp_tag = current_cache_entry.senseamp.delay;
-						  copy_powerDef(&sense_amp_tag_power,current_cache_entry.senseamp.power);
-
-						  outrisetime = current_cache_entry.senseamp_outputrisetime;
-					  }
-					  else {
-						sense_amp_tag =
-							sense_amp_tag_delay (
-								parameters->cache_size,
-								parameters->block_size,
-								parameters->tag_associativity,
-								Ntwl, Ntbl, Ntspd, *NSubbanks,
-								inrisetime, &outrisetime,
-								&sense_amp_tag_power);
-
-						cached_tag_calculations[tag_iteration_counter].senseamp.delay = sense_amp_tag;
-						copy_powerDef(
-							&(cached_tag_calculations[tag_iteration_counter].senseamp.power)
-							,sense_amp_tag_power);
-
-						cached_tag_calculations[tag_iteration_counter].senseamp_outputrisetime = outrisetime;
-
-						if(*NSubbanks == 1 && tag_iteration_counter < MAX_CACHE_ENTRIES) {
-							valid_tag_cache_entries[tag_iteration_counter] = TRUE;
-						}
-					  }
-
-				      max_delay = MAX (max_delay, sense_amp_tag);
-				      inrisetime = outrisetime;
-
-					  wirelength_v = wirelength_h = 0;
-					  if(parameters->tag_associativity != 1) {
-						precalc_muxdrv_widths(parameters->cache_size,
-							parameters->block_size,
-							parameters->data_associativity,
-							Ndwl, Ndbl, Nspd,
-							&wirelength_v, &wirelength_h);
-					  }
-
-				      /* split comparator - look at half the address bits only */
-				      reset_powerDef(&compare_tag_power);
-				      compare_tag =
-					half_compare_delay (
-							   parameters->cache_size,
-							   parameters->block_size,
-							   parameters->tag_associativity,
-							   Ntwl,Ntbl, Ntspd,
-							   *NSubbanks,
-							   inrisetime,
-							   &outrisetime,
-							   &compare_tag_power);
-				      
-				      inrisetime = outrisetime;
-				      max_delay = MAX (max_delay, compare_tag);
-
-				      reset_powerDef(&valid_driver_power);
-				      reset_powerDef(&mux_driver_power);
-				      reset_powerDef(&selb_power);
-				      if (parameters->tag_associativity == 1)
-					{
-					  mux_driver = 0;
-					  valid_driver =
-					    valid_driver_delay (
-								parameters->cache_size,
-								parameters->block_size,
-								parameters->tag_associativity,
-								parameters->fully_assoc,
-								Ndbl, Ndwl,
-								Nspd, Ntbl,
-								Ntwl, Ntspd,
-								NSubbanks,
-								inrisetime,
-								&valid_driver_power);
-					  
-					  max_delay =
-					    MAX (max_delay, valid_driver);
-					  time_till_compare =
-					    subbank_address_routing_delay +
-					    decoder_tag + wordline_tag +
-					    bitline_tag + sense_amp_tag;
-
-					  time_till_select =
-					    time_till_compare + compare_tag +
-					    valid_driver;
-
-
-					  /*
-					   * From the above info, calculate the total access time
-					   */
-					  /*If we're doing a pure SRAM table, then we don't need to take into account tags */
-					  if(pure_sram_flag) {
-						  access_time = before_mux + after_mux;
-					  }
-					  else {
-						if(sequential_access_flag) {
-							/*dt: testing sequential access mode*/
-							/*approximating the time it takes the match and valid signal to travel to the edge of the tag array with decode_tag */
-							access_time = before_mux + time_till_compare + compare_tag + decoder_tag;
-						}
-						else {
-							access_time =
-								MAX (before_mux + after_mux,
-								time_till_select);
-						}
-					  }
-					  
-					}
-				      else
-					{
-						
-
-						if(fast_cache_access_flag||sequential_access_flag) {
-							mux_driver = 0;
-						}//||sequential_access_flag added by Shyam to fix the bug
-						//of mux driver delay being larger than access time in serial access mode
-						//now mux driver delay code won't be touched in serial access mode
-						else {
-					  /* dualin mux driver - added for split comparator
-					     - inverter replaced by nand gate */
-							mux_driver =
-									mux_driver_delay_dualin
-										(parameters->cache_size,
-										parameters->block_size,
-										parameters->tag_associativity,
-										Ntbl, Ntspd,
-										inrisetime, &outrisetime,
-										wirelength_v, wirelength_h,
-										&mux_driver_power);
-						}
-						max_delay = MAX (max_delay, mux_driver);
-
-						selb = selb_delay_tag_path (inrisetime,
-								 &outrisetime,
-								 &selb_power);
-						 max_delay = MAX (max_delay, selb);
-
-						valid_driver = 0;
-
-						time_till_compare =
-							subbank_address_routing_delay +
-							decoder_tag + wordline_tag +
-							bitline_tag + sense_amp_tag;
-
-					  if(fast_cache_access_flag) {
-						  /*dt: don't wait for the mux signal to travel to the subarray, have the n ways
-						    routed to the edge of the data array*/
-						time_till_select =
-							time_till_compare + compare_tag +
-							selb;
-					  }
-					  else {
-						  time_till_select =
-							time_till_compare + compare_tag +
-							mux_driver +
-							selb;
-					  }
-					  
-					  if(sequential_access_flag) {
-						/*dt: testing sequential access*/
-						/*approximating the time it takes the match and valid signal to travel to the edge of the tag array with decode_tag */
-						  access_time = before_mux + time_till_compare + compare_tag + decoder_tag;
-					  }
-					  else {
-						access_time =
-							MAX (before_mux,
-							time_till_select) +
-							after_mux;
-					  }
-					  
-					}
-
-				      /*
-				       * Calcuate the cycle time
-				       */
-
-					precharge_del = precharge_delay(wordline_data);
-
-					/*dt: replacing this with a simple calculation:
-						  The things which cannot be easily pipelined are:
-						  wordline and bitlin
-						  senseamp
-						  comparator
-						  so those are the things which are going to limit cycle time
-					*/
-					cycle_time = MAX(
-									MAX(wordline_data + bitline_data + sense_amp_data,
-										wordline_tag  + bitline_tag  + sense_amp_tag),
-									compare_tag);
-
-				      /*
-				       * The parameters are for a 0.8um process.  A quick way to
-				       * scale the results to another process is to divide all
-				       * the results by FUDGEFACTOR.  Normally, FUDGEFACTOR is 1.
-				       */
-          
-          //v4.1: All delay and energy components are no longer scaled by FUDGEFACTOR as they have already
-	      //been computed for the input tech node.
-		  allports = parameters->num_readwrite_ports + parameters->num_read_ports + parameters->num_write_ports;
-		  allreadports = parameters->num_readwrite_ports + parameters->num_read_ports;
-		  allwriteports = parameters->num_readwrite_ports + parameters->num_write_ports;
-
-		  /*dt:We'll add this at the end*/
-		  mult_powerDef(&total_address_routing_power,allports);
-
-		  reset_powerDef(&total_power);
-
-		  mac_powerDef(&total_power,&subbank_address_routing_power,allports);
-		  mac_powerDef(&total_power,&decoder_data_power,allports);
-		  mac_powerDef(&total_power,&wordline_data_power,allports);
-		  /*dt: We can have different numbers of read/write ports, so the power numbers have to keep that in mind. Ports which can do both reads and
-		  writes are counted as writes for max power, because writes use full swing and thus use more power. (Assuming full bitline swing is greater 
-		  than senseamp power) */
-		  total_power.readOp.dynamic += bitline_data_power.readOp.dynamic * allreadports;
-		  total_power.writeOp.dynamic += bitline_data_power.writeOp.dynamic * allwriteports;
-		  /*dt: for multiported SRAM cells we assume NAND stacks on all the pure read ports. We assume neglegible
-		  leakage for these ports. The following code adjusts the leakage numbers accordingly.*/
-		  total_power.readOp.leakage += bitline_data_power.readOp.leakage * allreadports;//changed to allreadports by Shyam. Earlier this was allwriteports.
-		  total_power.writeOp.leakage += bitline_data_power.writeOp.leakage * allwriteports; 
-
-		  mac_powerDef(&total_power,&sense_amp_data_power,allreadports);
-		  mac_powerDef(&total_power,&total_out_driver_power,allreadports);
-		  /*dt: Tags are only written to when a cache line is evicted/replaced. The only bit which is written is the dirty bit. The dirty bits are kept
-		  in the data array. */
-		  //if on pure_sram_flag added by Shyam since tag power should not be added to total power in pure SRAM mode.
-		  if(!pure_sram_flag) {
-			  mac_powerDef(&total_power,&decoder_tag_power,allreadports);
-			  mac_powerDef(&total_power,&wordline_tag_power,allreadports);
-			  mac_powerDef(&total_power,&bitline_tag_power,allreadports);
-			  mac_powerDef(&total_power,&sense_amp_tag_power,allreadports);
-			  mac_powerDef(&total_power,&compare_tag_power,allreadports);
-			  mac_powerDef(&total_power,&valid_driver_power,allreadports);
-			  mac_powerDef(&total_power,&mux_driver_power,allreadports);
-			  mac_powerDef(&total_power,&selb_power,allreadports);
-		  }
-		  mac_powerDef(&total_power,&data_output_power,allreadports);
-
-	
-		  reset_powerDef(&total_power_without_routing);
-		  mac_powerDef(&total_power_without_routing,&total_power,1); // copy over and ..
-
-		  //total_power.readOp.dynamic /= FUDGEFACTOR;
-		  //total_power.writeOp.dynamic /= FUDGEFACTOR;
-		  /*dt: Leakage isn't scaled with FUDGEFACTOR, because that's already done by the leakage model much more realistically */
-
-		  
-		  mac_powerDef(&total_power_without_routing,&subbank_address_routing_power,-allports); // ... then subtract ..
-		  mac_powerDef(&total_power_without_routing,&total_out_driver_power,-allreadports);
-		  mac_powerDef(&total_power_without_routing,&valid_driver_power,-allreadports);
-		  
-		  /*total_power_without_routing.readOp.dynamic *= (*NSubbanks)/ FUDGEFACTOR;
-		  total_power_without_routing.readOp.leakage *= (*NSubbanks);
-		  total_power_without_routing.writeOp.dynamic *= (*NSubbanks)/ FUDGEFACTOR;
-		  total_power_without_routing.writeOp.leakage *= (*NSubbanks);*/
-
-		  total_power_without_routing.readOp.dynamic *= (*NSubbanks);
-		  total_power_without_routing.readOp.leakage *= (*NSubbanks);
-		  total_power_without_routing.writeOp.dynamic *= (*NSubbanks);
-		  total_power_without_routing.writeOp.leakage *= (*NSubbanks);
-		  /*dt: see above for leakage*/
-
-		  reset_powerDef(&total_power_allbanks);
-		  //total_power_allbanks.readOp.dynamic = total_power_without_routing.readOp.dynamic + total_address_routing_power.readOp.dynamic / FUDGEFACTOR;
-		  total_power_allbanks.readOp.dynamic = total_power_without_routing.readOp.dynamic + total_address_routing_power.readOp.dynamic;
-		  total_power_allbanks.readOp.leakage = total_power_without_routing.readOp.leakage + total_address_routing_power.readOp.leakage;
-		  //total_power_allbanks.writeOp.dynamic = total_power_without_routing.writeOp.dynamic + total_address_routing_power.writeOp.dynamic / FUDGEFACTOR;
-		  total_power_allbanks.writeOp.dynamic = total_power_without_routing.writeOp.dynamic + total_address_routing_power.writeOp.dynamic;
-		  total_power_allbanks.writeOp.leakage = total_power_without_routing.writeOp.leakage + total_address_routing_power.writeOp.leakage;
-
-				      //      if (counter==1)
-				      //        fprintf(stderr, "Pow - %f, Acc - %f, Pow - %f, Acc - %f, Combo - %f\n", total_power*1e9, access_time*1e9, total_power/result->max_power, access_time/result->max_access_time, total_power/result->max_power*access_time/result->max_access_time);
-
-				      if (counter == 1)
-					{
-					  if ( objective_function(1,1,1,
-											result->access_time / result->max_access_time,
-											1.0 / arearesult->efficiency,
-											((result->total_power.readOp.dynamic/result->cycle_time)+result->total_power.readOp.leakage+
-											 (result->total_power.writeOp.dynamic/result->cycle_time)+result->total_power.writeOp.leakage) / 2.0
-											/ result->max_power)
-						  >
-					        objective_function(1,1,1,
-											   access_time /(result->max_access_time),
-											   1.0 / efficiency,
-											   ((total_power.readOp.dynamic/(cycle_time))+total_power.readOp.leakage+
-											    (total_power.writeOp.dynamic/(cycle_time))+total_power.writeOp.leakage) / 2.0 
-											   / result->max_power)
-						 )//read and write dynamic energy components changed to power components by Shyam. Earlier 
-						 //read and write dynamic energies were being added to leakage power components and getting swamped
-					    {
-					      result->senseext_scale = senseext_scale;
-					      copy_powerDef(&result->total_power,total_power);
-					      copy_powerDef(&result->total_power_without_routing,total_power_without_routing);
-					      //copy_and_div_powerDef(&result->total_routing_power,total_address_routing_power,FUDGEFACTOR);
-						  copy_powerDef(&result->total_routing_power,total_address_routing_power);
-					      copy_powerDef(&result->total_power_allbanks,total_power_allbanks);
-
-					      result->subbank_address_routing_delay = subbank_address_routing_delay / FUDGEFACTOR;
-					      //copy_and_div_powerDef(&result->subbank_address_routing_power,subbank_address_routing_power,FUDGEFACTOR);
-						  copy_powerDef(&result->subbank_address_routing_power,subbank_address_routing_power);	
-
-					      //result->cycle_time = cycle_time / FUDGEFACTOR;
-					      //result->access_time = access_time / FUDGEFACTOR;
-						  result->cycle_time = cycle_time;
-					      result->access_time = access_time;
-					      result->best_muxover = muxover;
-					      result->best_Ndwl = Ndwl;
-					      result->best_Ndbl = Ndbl;
-					      result->best_Nspd = Nspd;
-					      result->best_Ntwl = Ntwl;
-					      result->best_Ntbl = Ntbl;
-					      result->best_Ntspd = Ntspd;
-					      /*result->decoder_delay_data = decoder_data / FUDGEFACTOR;
-					      copy_and_div_powerDef(&result->decoder_power_data,decoder_data_power,FUDGEFACTOR);
-					      result->decoder_delay_tag = decoder_tag / FUDGEFACTOR;
-					      copy_and_div_powerDef(&result->decoder_power_tag,decoder_tag_power,FUDGEFACTOR);
-					      result->dec_tag_driver = decoder_tag_driver / FUDGEFACTOR;
-					      result->dec_tag_3to8 = decoder_tag_3to8 / FUDGEFACTOR;
-					      result->dec_tag_inv = decoder_tag_inv / FUDGEFACTOR;
-					      result->dec_data_driver = decoder_data_driver / FUDGEFACTOR;
-					      result->dec_data_3to8 = decoder_data_3to8 / FUDGEFACTOR;
-					      result->dec_data_inv = decoder_data_inv / FUDGEFACTOR;
-					      result->wordline_delay_data = wordline_data / FUDGEFACTOR;
-					      copy_and_div_powerDef(&result->wordline_power_data,wordline_data_power,FUDGEFACTOR);
-					      result->wordline_delay_tag = wordline_tag / FUDGEFACTOR;
-					      copy_and_div_powerDef(&result->wordline_power_tag,wordline_tag_power,FUDGEFACTOR);
-					      result->bitline_delay_data = bitline_data / FUDGEFACTOR;
-					      copy_and_div_powerDef(&result->bitline_power_data,bitline_data_power,FUDGEFACTOR);
-					      result->bitline_delay_tag = bitline_tag / FUDGEFACTOR;
-					      copy_and_div_powerDef(&result->bitline_power_tag,bitline_tag_power,FUDGEFACTOR);
-					      result->sense_amp_delay_data = sense_amp_data / FUDGEFACTOR;
-					      copy_and_div_powerDef(&result->sense_amp_power_data,sense_amp_data_power,FUDGEFACTOR);
-					      result->sense_amp_delay_tag = sense_amp_tag / FUDGEFACTOR;
-					      copy_and_div_powerDef(&result->sense_amp_power_tag,sense_amp_tag_power,FUDGEFACTOR);
-					      result->total_out_driver_delay_data = total_out_driver / FUDGEFACTOR;
-					      copy_and_div_powerDef(&result->total_out_driver_power_data,total_out_driver_power,FUDGEFACTOR);
-					      result->compare_part_delay = compare_tag / FUDGEFACTOR;
-					      copy_and_div_powerDef(&result->compare_part_power,compare_tag_power,FUDGEFACTOR);
-					      result->drive_mux_delay = mux_driver / FUDGEFACTOR;
-					      copy_and_div_powerDef(&result->drive_mux_power,mux_driver_power,FUDGEFACTOR);
-					      result->selb_delay = selb / FUDGEFACTOR;
-					      copy_and_div_powerDef(&result->selb_power,selb_power,FUDGEFACTOR);
-					      result->drive_valid_delay = valid_driver / FUDGEFACTOR;
-					      copy_and_div_powerDef(&result->drive_valid_power,valid_driver_power,FUDGEFACTOR);
-					      result->data_output_delay = data_output / FUDGEFACTOR;
-					      copy_and_div_powerDef(&result->data_output_power,data_output_power,FUDGEFACTOR);
-					      result->precharge_delay = precharge_del / FUDGEFACTOR;*/
-
-						result->decoder_delay_data = decoder_data;
-					      copy_powerDef(&result->decoder_power_data,decoder_data_power);
-					      result->decoder_delay_tag = decoder_tag;
-					      copy_powerDef(&result->decoder_power_tag,decoder_tag_power);
-					      result->dec_tag_driver = decoder_tag_driver;
-					      result->dec_tag_3to8 = decoder_tag_3to8;
-					      result->dec_tag_inv = decoder_tag_inv;
-					      result->dec_data_driver = decoder_data_driver;
-					      result->dec_data_3to8 = decoder_data_3to8;
-					      result->dec_data_inv = decoder_data_inv;
-					      result->wordline_delay_data = wordline_data;
-					      copy_powerDef(&result->wordline_power_data,wordline_data_power);
-					      result->wordline_delay_tag = wordline_tag;
-					      copy_powerDef(&result->wordline_power_tag,wordline_tag_power);
-					      result->bitline_delay_data = bitline_data;
-					      copy_powerDef(&result->bitline_power_data,bitline_data_power);
-					      result->bitline_delay_tag = bitline_tag;
-					      copy_powerDef(&result->bitline_power_tag,bitline_tag_power);
-					      result->sense_amp_delay_data = sense_amp_data;
-					      copy_powerDef(&result->sense_amp_power_data,sense_amp_data_power);
-					      result->sense_amp_delay_tag = sense_amp_tag;
-					      copy_powerDef(&result->sense_amp_power_tag,sense_amp_tag_power);
-					      result->total_out_driver_delay_data = total_out_driver;
-					      copy_powerDef(&result->total_out_driver_power_data,total_out_driver_power);
-					      result->compare_part_delay = compare_tag;
-					      copy_powerDef(&result->compare_part_power,compare_tag_power);
-					      result->drive_mux_delay = mux_driver;
-					      copy_powerDef(&result->drive_mux_power,mux_driver_power);
-					      result->selb_delay = selb;
-					      copy_powerDef(&result->selb_power,selb_power);
-					      result->drive_valid_delay = valid_driver;
-					      copy_powerDef(&result->drive_valid_power,valid_driver_power);
-					      result->data_output_delay = data_output;
-					      copy_powerDef(&result->data_output_power,data_output_power);
-					      result->precharge_delay = precharge_del;
-
-
-
-					      result->data_nor_inputs = data_nor_inputs;
-					      result->tag_nor_inputs = tag_nor_inputs;
-					      area_subbanked (ADDRESS_BITS,
-							      BITOUT,
-							      parameters->
-							      num_readwrite_ports,
-							      parameters->
-							      num_read_ports,
-							      parameters->
-							      num_write_ports,
-							      Ndbl, Ndwl,
-							      Nspd, Ntbl,
-							      Ntwl, Ntspd,
-							      *NSubbanks,
-							      parameters,
-							      arearesult_subbanked,
-							      arearesult);
-
-						  
-				//v4.1: No longer using calculate_area function as area has already been
-				//computed for the given tech node
-					      /*arearesult->efficiency =
-						(*NSubbanks) *
-						(area_all_dataramcells +
-						 area_all_tagramcells) * 100 /
-						(calculate_area
-						 (*arearesult_subbanked,
-						  parameters->fudgefactor) / 100000000.0);*/
-
-
-						  arearesult->efficiency =
-						(*NSubbanks) *
-						(area_all_dataramcells +
-						 area_all_tagramcells) * 100 /
-						(arearesult_subbanked->height * arearesult_subbanked->width / 100000000.0);
-					      arearesult->aspect_ratio_total =
-						(arearesult_subbanked->height / arearesult_subbanked->width);
-					      arearesult->aspect_ratio_total =
-						(arearesult->aspect_ratio_total > 1.0) ? 
-							(arearesult->aspect_ratio_total) : 1.0 / (arearesult->aspect_ratio_total);
-					      arearesult->max_efficiency = max_efficiency;
-					      arearesult->max_aspect_ratio_total = max_aspect_ratio_total;
-
-
-					    }
-					}
-				      else
-					{
-						if (result->max_access_time < access_time) {
-							result->max_access_time = access_time ;
-						}
-						if (result->max_power < 
-						  ((total_power.readOp.dynamic/(cycle_time))+total_power.readOp.leakage+
-											 (total_power.writeOp.dynamic/(cycle_time))+total_power.writeOp.leakage)/ 2.0) {
-							result->max_power = ((total_power.readOp.dynamic/(cycle_time))+total_power.readOp.leakage+
-											 (total_power.writeOp.dynamic/(cycle_time))+total_power.writeOp.leakage)/ 2.0;
-						 //read and write dynamic energy components changed to power components by Shyam. Earlier 
-						 //read and write dynamic energies were being added to leakage power components and getting swamped
-						}
-					  if (arearesult_temp.max_efficiency < efficiency)
-					    {
-					      arearesult_temp.max_efficiency = efficiency;
-					      max_efficiency = efficiency;
-					    }
-						if (min_efficiency > efficiency) {
-							min_efficiency = efficiency;
-						}
-						if (max_aspect_ratio_total < aspect_ratio_total_temp) {
-							max_aspect_ratio_total = aspect_ratio_total_temp;
-					    }
-					}
-				  }
-				}
-			  }
-			}
-			    }
-		  }
-		}
-	  }
-	}
-      else
-	{
-	  /* Fully associative model - only vary Ndbl|Ntbl */
-
-	  for (Ndbl = 1; Ndbl <= MAXDATAN; Ndbl = Ndbl * 2)
-	    {
-	      Ntbl = Ndbl;
-		  //v4.1: Nspd is now of double data type
-	      //Ndwl = Nspd = Ntwl = Ntspd = 1;
-		  Ndwl = Ntwl = Ntspd = 1;
-		  Nspd = 1.0;
-
-
-	      if (data_organizational_parameters_valid
-		  (parameters->block_size, 1, parameters->cache_size, Ndwl,
-		   Ndbl, Nspd, parameters->fully_assoc,(*NSubbanks)))
-		{
-
-		  if (8 * parameters->block_size / BITOUT == 1
-		      && Nspd == 1)
-		    {
-		      muxover = 1;
-		    }
-		  else
-		    {
-		      if (Nspd > MAX_COL_MUX)
-			{
-			  muxover = 8 * parameters->block_size / BITOUT;
-			}
-		      else
-			{
-			  if (8 * parameters->block_size * Nspd /
-			      BITOUT > MAX_COL_MUX)
-			    {
-			      muxover =
-				(8 * parameters->block_size / BITOUT) /
-				(MAX_COL_MUX / (Nspd));
-			    }
-			  else
-			    {
-			      muxover = 1;
-			    }
-			}
-		    }
-
-
-		  area_subbanked (ADDRESS_BITS, BITOUT,
-				  parameters->num_readwrite_ports,
-				  parameters->num_read_ports,
-				  parameters->num_write_ports, Ndbl, Ndwl,
-				  Nspd, Ntbl, Ntwl, Ntspd, *NSubbanks,
-				  parameters, &arearesult_subbanked_temp,
-				  &arearesult_temp);
-
-		  Subbank_Efficiency =
-		    (area_all_dataramcells +
-		     area_all_tagramcells) * 100 /
-		    (arearesult_temp.totalarea / 100000000.0);
-
-		  //v4.1: No longer using calculate_area function as area has already been
-		  //computed for the given tech node
-		  /*Total_Efficiency =
-		    (*NSubbanks) * (area_all_dataramcells +
-				    area_all_tagramcells) * 100 /
-		    (calculate_area (arearesult_subbanked_temp,
-				     parameters->fudgefactor) / 100000000.0);*/
-
-		  Total_Efficiency =
-		    (*NSubbanks) * (area_all_dataramcells +
-				    area_all_tagramcells) * 100 /
-		    (arearesult_subbanked_temp.height * arearesult_subbanked_temp.width / 100000000.0);
-		  // efficiency = Subbank_Efficiency;
-		  efficiency = Total_Efficiency;
-
-		  arearesult_temp.efficiency = efficiency;
-		  aspect_ratio_total_temp =
-		    (arearesult_subbanked_temp.height /
-		     arearesult_subbanked_temp.width);
-		  aspect_ratio_total_temp =
-		    (aspect_ratio_total_temp >
-		     1.0) ? (aspect_ratio_total_temp) : 1.0 /
-		    (aspect_ratio_total_temp);
-
-		  arearesult_temp.aspect_ratio_total =
-		    aspect_ratio_total_temp;
-
-		  bank_h = 0;
-		  bank_v = 0;
-
-		  subbank_dim (parameters->cache_size, parameters->block_size,
-			       parameters->data_associativity,
-			       parameters->fully_assoc, Ndbl, Ndwl, Nspd,
-			       Ntbl, Ntwl, Ntspd, *NSubbanks, &bank_h,
-			       &bank_v);
-
-		  reset_powerDef(&subbank_address_routing_power);
-		  /*dt: this has to be reset on every loop iteration, or else we implicitly reuse the risetime from the end
-		    of the last loop iteration!*/
-		  inrisetime = addr_inrisetime = 0;
-
-		  subbanks_routing_power (parameters->fully_assoc,
-					  parameters->data_associativity,
-					  *NSubbanks, &bank_h, &bank_v,
-					  &total_address_routing_power);
-
-		  if (*NSubbanks > 2)
-		    {
-		      subbank_address_routing_delay =
-				address_routing_delay (parameters->cache_size,
-					       parameters->block_size,
-					       parameters->data_associativity,
-					       parameters->fully_assoc, Ndwl,
-					       Ndbl, Nspd, Ntwl, Ntbl, Ntspd,
-					       NSubbanks, &outrisetime,
-					       &subbank_address_routing_power);
-		    }
-
-		  
-
-		  /* Calculate data side of cache */
-		  inrisetime = outrisetime;
-		  addr_inrisetime = outrisetime;
-
-		  max_delay = 0;
-		  /* tag path contained here */
-		  reset_powerDef(&decoder_data_power);
-		  decoder_data = fa_tag_delay (parameters->cache_size,
-					       parameters->block_size,
-					       Ntwl, Ntbl, Ntspd,
-						   &tag_delay_part1,
-					       &tag_delay_part2,
-					       &tag_delay_part3,
-					       &tag_delay_part4,
-					       &tag_delay_part5,
-					       &tag_delay_part6, &outrisetime,
-					       &tag_nor_inputs,
-					       &decoder_data_power);
-
-		  inrisetime = outrisetime;
-		  max_delay = MAX (max_delay, decoder_data);
-		  Tpre = decoder_data;
-
-
-		  reset_powerDef(&wordline_data_power);
-
-		  //Added by Shyam to make FA caches work
-		  Wdecinvn = 20.0 / FUDGEFACTOR;//From v3.2 #define value
-          Wdecinvp = 40.0 / FUDGEFACTOR;//From v3.2 #define value
-		  Woutdrvseln = 24.0 / FUDGEFACTOR;
-          Woutdrvselp = 40.0 / FUDGEFACTOR;
-          Woutdrvnandn = 10.0 / FUDGEFACTOR;
-          Woutdrvnandp = 30.0 / FUDGEFACTOR;
-		  Woutdrvnorn = 5.0 / FUDGEFACTOR;
-          Woutdrvnorp = 20.0 / FUDGEFACTOR;
-          Woutdrivern = 48.0 / FUDGEFACTOR;
-          Woutdriverp = 80.0 / FUDGEFACTOR;
-		  
-          colsfa = CHUNKSIZE*parameters->block_size*1*Nspd/Ndwl;
-		  desiredrisetimefa = krise*log((double)(colsfa))/2.0;
-		  Clinefa = (gatecappass(Wmemcella,(BitWidth-2*Wmemcella)/2.0)+ gatecappass(Wmemcella,(BitWidth-2*Wmemcella)/2.0)+ Cwordmetal)*colsfa;
-	      Rpdrivefa = desiredrisetimefa/(Clinefa*log(VSINV)*-1.0);
-	      WwlDrvp = restowidth(Rpdrivefa,PCH);
-	      if (WwlDrvp > Wworddrivemax) {
-			  WwlDrvp = Wworddrivemax;
-		  }
-		  //End of Shyam's FA change
-
-		  wordline_data = wordline_delay (
-						  parameters->cache_size,
-			              parameters->block_size,
-						  1, Ndwl, Ndbl,Nspd,
-						  inrisetime, &outrisetime,
-						  &wordline_data_power);
-		  
-		  inrisetime = outrisetime;
-		  max_delay = MAX (max_delay, wordline_data);
-		  /*dt: assuming that the precharge delay is equal to decode + wordline delay */
-		  Tpre += wordline_data;
-
-		  reset_powerDef(&bitline_data_power);
-		  bitline_data = bitline_delay (parameters->cache_size, 1,
-						parameters->block_size, Ndwl,
-						Ndbl, Nspd, inrisetime,
-						&outrisetime,
-						&bitline_data_power, Tpre);
-		  
-		 
-		  inrisetime = outrisetime;
-		  max_delay = MAX (max_delay, bitline_data);
-
-		  {
-		    reset_powerDef(&sense_amp_data_power);
-		    sense_amp_data =
-		      sense_amp_delay (parameters->cache_size,
-				      parameters->block_size,
-					  parameters->data_associativity,
-					   Ndwl, Ndbl, Nspd,
-					  inrisetime, &outrisetime,
-				       &sense_amp_data_power);
-		    
-		    max_delay = MAX (max_delay, sense_amp_data);
-		  }
-		  inrisetime = outrisetime;
-
-		  reset_powerDef(&data_output_power);
-		  data_output =
-		    dataoutput_delay (parameters->cache_size,
-				      parameters->block_size, 1,
-				      parameters->fully_assoc, 
-					  Ndbl, Nspd, Ndwl,
-					  inrisetime, &outrisetime,
-				      &data_output_power);
-
-		  inrisetime = outrisetime;
-		  max_delay = MAX (max_delay, data_output);
-
-		  reset_powerDef(&total_out_driver_power);
-
-		  subbank_v = 0;
-		  subbank_h = 0;
-
-		  subbank_routing_length (parameters->cache_size,
-					  parameters->block_size,
-					  parameters->data_associativity,
-					  parameters->fully_assoc, Ndbl, Nspd,
-					  Ndwl, Ntbl, Ntwl, Ntspd, *NSubbanks,
-					  &subbank_v, &subbank_h);
-
-		  if (*NSubbanks > 2)
-		    {
-		      total_out_driver =
-			senseext_driver_delay (parameters->data_associativity,
-					       parameters->fully_assoc,
-					       inrisetime, &outrisetime,
-					       subbank_v, subbank_h,
-					       &total_out_driver_power);
-		    }
-
-/*
-                total_out_driver = total_out_driver_delay(parameters->cache_size,
-					parameters->block_size,parameters->associativity,parameters->fully_assoc,
-					Ndbl,Nspd,Ndwl,Ntbl,Ntwl,Ntspd,
-					*NSubbanks,inrisetime,&outrisetime, &total_out_driver_power);
-*/
-		  
-		  inrisetime = outrisetime;
-		  max_delay = MAX (max_delay, total_out_driver);
-
-		  access_time =
-		    subbank_address_routing_delay + decoder_data +
-		    wordline_data + bitline_data + sense_amp_data +
-		    data_output + total_out_driver;
-
-		  /*
-		   * Calcuate the cycle time
-		   */
-
-		  precharge_del = precharge_delay(wordline_data);
-
-		  cycle_time = MAX(
-								MAX(wordline_data + bitline_data + sense_amp_data,
-									wordline_tag  + bitline_tag + sense_amp_tag),
-								compare_tag);
-
-		  /*
-		   * The parameters are for a 0.8um process.  A quick way to
-		   * scale the results to another process is to divide all
-		   * the results by FUDGEFACTOR.  Normally, FUDGEFACTOR is 1.
-		   */
-		  /*dt: see previous comment on sense amp leakage*/
-          /*
-		  sense_amp_data_power +=
-		    (data_output + total_out_driver) * 500e-6 * 5;
-		  */
-		  allports = parameters->num_readwrite_ports + parameters->num_read_ports + parameters->num_write_ports;
-		  allreadports = parameters->num_readwrite_ports + parameters->num_read_ports;
-		  allwriteports = parameters->num_readwrite_ports + parameters->num_write_ports;
-
-		  mult_powerDef(&total_address_routing_power,allports);
-
-		  reset_powerDef(&total_power);
-
-		  mac_powerDef(&total_power,&subbank_address_routing_power,allports);
-		  mac_powerDef(&total_power,&decoder_data_power,allports);
-		  mac_powerDef(&total_power,&wordline_data_power,allports);
-
-		  /*dt: We can have different numbers of read/write ports, so the power numbers have to keep that in mind. Ports which can do both reads and
-		  writes are counted as writes for max power, because writes use full swing and thus use more power. (Assuming full bitline swing is greater 
-		  than senseamp power) */
-		  total_power.readOp.dynamic += bitline_data_power.readOp.dynamic * allreadports;
-		  total_power.writeOp.dynamic += bitline_data_power.writeOp.dynamic * allwriteports;
-		  /*dt: for multiported SRAM cells we assume NAND stacks on all the pure read ports. We assume neglegible
-		  leakage for these ports. The following code adjusts the leakage numbers accordingly.*/
-		  total_power.readOp.leakage += bitline_data_power.readOp.leakage * allwriteports;
-		  total_power.writeOp.leakage += bitline_data_power.writeOp.leakage * allwriteports; 
-
-		  mac_powerDef(&total_power,&sense_amp_data_power,allreadports);
-		  mac_powerDef(&total_power,&total_out_driver_power,allreadports);
-		  /*dt: in a fully associative cache we don't have tag decoders, wordlines or bitlines, etc. . Only CAM */
-		  reset_powerDef(&decoder_tag_power);
-		  reset_powerDef(&wordline_tag_power);
-		  reset_powerDef(&bitline_tag_power);
-		  reset_powerDef(&sense_amp_tag_power);
-		  reset_powerDef(&compare_tag_power);
-		  reset_powerDef(&valid_driver_power);
-		  reset_powerDef(&mux_driver_power);
-		  reset_powerDef(&selb_power);
-
-		  mac_powerDef(&total_power,&data_output_power,allreadports);
-
-		  reset_powerDef(&total_power_without_routing);
-		  mac_powerDef(&total_power_without_routing,&total_power,1); // copy over and ..
-
-		  //total_power.readOp.dynamic /= FUDGEFACTOR;
-		  //total_power.writeOp.dynamic /= FUDGEFACTOR;
-		  /*dt: Leakage isn't scaled with FUDGEFACTOR, because that's already done by the leakage model much more realistically */
-
-		  mac_powerDef(&total_power_without_routing,&subbank_address_routing_power,-allports); // ... then subtract ..
-		  mac_powerDef(&total_power_without_routing,&total_out_driver_power,-allreadports);
-		  mac_powerDef(&total_power_without_routing,&valid_driver_power,-allreadports);
-
-		  /*dt: See above for leakage */
-		  //total_power_without_routing.readOp.dynamic *= (*NSubbanks)/ FUDGEFACTOR;
-		  total_power_without_routing.readOp.dynamic *= (*NSubbanks);
-		  total_power_without_routing.readOp.leakage *= (*NSubbanks);
-		  //total_power_without_routing.writeOp.dynamic *= (*NSubbanks)/ FUDGEFACTOR;
-		  total_power_without_routing.writeOp.dynamic *= (*NSubbanks);
-		  total_power_without_routing.writeOp.leakage *= (*NSubbanks);
-
-		  //total_power_allbanks.readOp.dynamic = total_power_without_routing.readOp.dynamic + total_address_routing_power.readOp.dynamic / FUDGEFACTOR;
-		  total_power_allbanks.readOp.dynamic = total_power_without_routing.readOp.dynamic + total_address_routing_power.readOp.dynamic ;
-		  total_power_allbanks.readOp.leakage = total_power_without_routing.readOp.leakage + total_address_routing_power.readOp.leakage;
-		  //total_power_allbanks.writeOp.dynamic = total_power_without_routing.writeOp.dynamic + total_address_routing_power.writeOp.dynamic / FUDGEFACTOR;
-		  total_power_allbanks.writeOp.dynamic = total_power_without_routing.writeOp.dynamic + total_address_routing_power.writeOp.dynamic;
-		  total_power_allbanks.writeOp.leakage = total_power_without_routing.writeOp.leakage + total_address_routing_power.writeOp.leakage;
-
-		  if (counter == 1)
-		    {
-		      // if ((result->total_power/result->max_power)/2+(result->access_time/result->max_access_time) > ((total_power/result->max_power)/2+access_time/(result->max_access_time*FUDGEFACTOR))) {
-
-		      if ( objective_function(1,1,1,
-											result->access_time / result->max_access_time,
-											1.0 / arearesult->efficiency,
-											((result->total_power.readOp.dynamic/result->cycle_time)+result->total_power.readOp.leakage+
-											 (result->total_power.writeOp.dynamic/result->cycle_time)+result->total_power.writeOp.leakage) / 2.0
-											/ result->max_power)
-						  >
-					        objective_function(1,1,1,
-											   access_time /(result->max_access_time),
-											   1.0 / efficiency,
-											   ((total_power.readOp.dynamic/(cycle_time))+total_power.readOp.leakage+
-											    (total_power.writeOp.dynamic/(cycle_time))+total_power.writeOp.leakage) / 2.0
-											   / result->max_power)
-				  )//read and write dynamic energy components changed to power components by Shyam. Earlier 
-				   //read and write dynamic energies were being added to leakage power components and getting swamped
-			  
-			{
-			  // if ((result->total_power/result->max_power)/2+(result->access_time/result->max_access_time) + (min_efficiency/arearesult->efficiency)/4 + (arearesult->aspect_ratio_total/max_aspect_ratio_total)/3 > ((total_power/result->max_power)/2+access_time/(result->max_access_time*FUDGEFACTOR)+ (min_efficiency/efficiency)/4 + (arearesult_temp.aspect_ratio_total/max_aspect_ratio_total)/3)) {
-
-			  //          if (result->cycle_time+1e-11*(result->best_Ndwl+result->best_Ndbl+result->best_Nspd+result->best_Ntwl+result->best_Ntbl+result->best_Ntspd) > cycle_time/FUDGEFACTOR+1e-11*(Ndwl+Ndbl+Nspd+Ntwl+Ntbl+Ntspd)) {
-
-
-			  result->senseext_scale = senseext_scale;
-			  copy_powerDef(&result->total_power,total_power);
-			  copy_powerDef(&result->total_power_without_routing,total_power_without_routing);
-			  //copy_and_div_powerDef(&result->total_routing_power,total_address_routing_power,FUDGEFACTOR);
-			  copy_powerDef(&result->total_routing_power,total_address_routing_power);
-			  copy_powerDef(&result->total_power_allbanks,total_power_allbanks);
-
-		      /*result->subbank_address_routing_delay = subbank_address_routing_delay / FUDGEFACTOR;
-		      copy_and_div_powerDef(&result->subbank_address_routing_power,subbank_address_routing_power,FUDGEFACTOR);
-			  result->cycle_time = cycle_time / FUDGEFACTOR;
-			  result->access_time = access_time / FUDGEFACTOR;
-			  result->best_Ndwl = Ndwl;
-			  result->best_Ndbl = Ndbl;
-			  result->best_Nspd = Nspd;
-			  result->best_Ntwl = Ntwl;
-			  result->best_Ntbl = Ntbl;
-			  result->best_Ntspd = Ntspd;
-			  result->decoder_delay_data = decoder_data / FUDGEFACTOR;
-			  copy_and_div_powerDef(&result->decoder_power_data,decoder_data_power,FUDGEFACTOR);
-			  result->decoder_delay_tag = decoder_tag / FUDGEFACTOR;
-			  copy_and_div_powerDef(&result->decoder_power_tag,decoder_tag_power,FUDGEFACTOR);
-			  result->dec_tag_driver = decoder_tag_driver / FUDGEFACTOR;
-			  result->dec_tag_3to8 = decoder_tag_3to8 / FUDGEFACTOR;
-			  result->dec_tag_inv = decoder_tag_inv / FUDGEFACTOR;
-			  result->dec_data_driver = decoder_data_driver / FUDGEFACTOR;
-			  result->dec_data_3to8 = decoder_data_3to8 / FUDGEFACTOR;
-			  result->dec_data_inv = decoder_data_inv / FUDGEFACTOR;
-			  result->wordline_delay_data = wordline_data / FUDGEFACTOR;
-			  copy_and_div_powerDef(&result->wordline_power_data,wordline_data_power,FUDGEFACTOR);
-			  result->wordline_delay_tag = wordline_tag / FUDGEFACTOR;
-			  copy_and_div_powerDef(&result->wordline_power_tag,wordline_tag_power,FUDGEFACTOR);
-			  result->bitline_delay_data = bitline_data / FUDGEFACTOR;
-			  copy_and_div_powerDef(&result->bitline_power_data,bitline_data_power,FUDGEFACTOR);
-			  result->bitline_delay_tag = bitline_tag / FUDGEFACTOR;
-			  copy_and_div_powerDef(&result->bitline_power_tag,bitline_tag_power,FUDGEFACTOR);
-			  result->sense_amp_delay_data = sense_amp_data / FUDGEFACTOR;
-			  copy_and_div_powerDef(&result->sense_amp_power_data,sense_amp_data_power,FUDGEFACTOR);
-			  result->sense_amp_delay_tag = sense_amp_tag / FUDGEFACTOR;
-			  copy_and_div_powerDef(&result->sense_amp_power_tag,sense_amp_tag_power,FUDGEFACTOR);
-			  result->total_out_driver_delay_data = total_out_driver / FUDGEFACTOR;
-			  copy_and_div_powerDef(&result->total_out_driver_power_data,total_out_driver_power,FUDGEFACTOR);
-			  result->compare_part_delay = compare_tag / FUDGEFACTOR;
-			  copy_and_div_powerDef(&result->compare_part_power,compare_tag_power,FUDGEFACTOR);
-			  result->drive_mux_delay = mux_driver / FUDGEFACTOR;
-			  copy_and_div_powerDef(&result->drive_mux_power,mux_driver_power,FUDGEFACTOR);
-			  result->selb_delay = selb / FUDGEFACTOR;
-			  copy_and_div_powerDef(&result->selb_power,selb_power,FUDGEFACTOR);
-			  result->drive_valid_delay = valid_driver / FUDGEFACTOR;
-			  copy_and_div_powerDef(&result->drive_valid_power,valid_driver_power,FUDGEFACTOR);
-			  result->data_output_delay = data_output / FUDGEFACTOR;
-			  copy_and_div_powerDef(&result->data_output_power,data_output_power,FUDGEFACTOR);
-			  result->precharge_delay = precharge_del / FUDGEFACTOR;*/
-
-			  result->subbank_address_routing_delay = subbank_address_routing_delay;
-		      copy_powerDef(&result->subbank_address_routing_power,subbank_address_routing_power);
-			  result->cycle_time = cycle_time;
-			  result->access_time = access_time;
-			  result->best_Ndwl = Ndwl;
-			  result->best_Ndbl = Ndbl;
-			  result->best_Nspd = Nspd;
-			  result->best_Ntwl = Ntwl;
-			  result->best_Ntbl = Ntbl;
-			  result->best_Ntspd = Ntspd;
-			  result->decoder_delay_data = decoder_data;
-			  copy_powerDef(&result->decoder_power_data,decoder_data_power);
-			  result->decoder_delay_tag = decoder_tag;
-			  copy_powerDef(&result->decoder_power_tag,decoder_tag_power);
-			  result->dec_tag_driver = decoder_tag_driver;
-			  result->dec_tag_3to8 = decoder_tag_3to8;
-			  result->dec_tag_inv = decoder_tag_inv;
-			  result->dec_data_driver = decoder_data_driver;
-			  result->dec_data_3to8 = decoder_data_3to8;
-			  result->dec_data_inv = decoder_data_inv;
-			  result->wordline_delay_data = wordline_data;
-			  copy_powerDef(&result->wordline_power_data,wordline_data_power);
-			  result->wordline_delay_tag = wordline_tag;
-			  copy_powerDef(&result->wordline_power_tag,wordline_tag_power);
-			  result->bitline_delay_data = bitline_data;
-			  copy_powerDef(&result->bitline_power_data,bitline_data_power);
-			  result->bitline_delay_tag = bitline_tag;
-			  copy_powerDef(&result->bitline_power_tag,bitline_tag_power);
-			  result->sense_amp_delay_data = sense_amp_data;
-			  copy_powerDef(&result->sense_amp_power_data,sense_amp_data_power);
-			  result->sense_amp_delay_tag = sense_amp_tag;
-			  copy_powerDef(&result->sense_amp_power_tag,sense_amp_tag_power);
-			  result->total_out_driver_delay_data = total_out_driver;
-			  copy_powerDef(&result->total_out_driver_power_data,total_out_driver_power);
-			  result->compare_part_delay = compare_tag;
-			  copy_powerDef(&result->compare_part_power,compare_tag_power);
-			  result->drive_mux_delay = mux_driver;
-			  copy_powerDef(&result->drive_mux_power,mux_driver_power);
-			  result->selb_delay = selb;
-			  copy_powerDef(&result->selb_power,selb_power);
-			  result->drive_valid_delay = valid_driver;
-			  copy_powerDef(&result->drive_valid_power,valid_driver_power);
-			  result->data_output_delay = data_output;
-			  copy_powerDef(&result->data_output_power,data_output_power);
-			  result->precharge_delay = precharge_del;
-			  result->data_nor_inputs = data_nor_inputs;
-			  result->tag_nor_inputs = tag_nor_inputs;
-
-			  area_subbanked (ADDRESS_BITS, BITOUT,
-					  parameters->num_readwrite_ports,
-					  parameters->num_read_ports,
-					  parameters->num_write_ports, Ndbl,
-					  Ndwl, Nspd, Ntbl, Ntwl, Ntspd,
-					  *NSubbanks, parameters,
-					  arearesult_subbanked, arearesult);
-
-			  //v4.1: No longer using calculate_area function as area has already been
-			  //computed for the given tech node
-			  /*arearesult->efficiency =
-			    (*NSubbanks) * (area_all_dataramcells +
-					    area_all_tagramcells) * 100 /
-			    (calculate_area (*arearesult_subbanked,
-					     parameters->fudgefactor) /
-			     100000000.0);*/
-
-				arearesult->efficiency =
-			    (*NSubbanks) * (area_all_dataramcells +
-					    area_all_tagramcells) * 100 /
-			    (arearesult_subbanked->height * arearesult_subbanked->width /100000000.0);
-
-			  arearesult->aspect_ratio_total =
-			    (arearesult_subbanked->height /
-			     arearesult_subbanked->width);
-			  arearesult->aspect_ratio_total =
-			    (arearesult->aspect_ratio_total >
-			     1.0) ? (arearesult->aspect_ratio_total) : 1.0 /
-			    (arearesult->aspect_ratio_total);
-			  arearesult->max_efficiency = max_efficiency;
-			  arearesult->max_aspect_ratio_total =
-			    max_aspect_ratio_total;
-
-			}
-		    }
-		  else
-		    {
-
-		      if (result->max_access_time < access_time)
-			result->max_access_time = access_time;
-		      if (result->max_power < 
-					((total_power.readOp.dynamic/(cycle_time))+total_power.readOp.leakage+
-					(total_power.writeOp.dynamic/(cycle_time))+total_power.writeOp.leakage)/ 2.0) {
-						result->max_power = ((total_power.readOp.dynamic/(cycle_time))+total_power.readOp.leakage+
-											 (total_power.writeOp.dynamic/(cycle_time))+total_power.writeOp.leakage)/ 2.0;
-			  } //read and write dynamic energy components changed to power components by Shyam. Earlier 
-				//read and write dynamic energies were being added to leakage power components and getting swamped
-		      if (arearesult_temp.max_efficiency < efficiency)
-			{
-			  arearesult_temp.max_efficiency = efficiency;
-			  max_efficiency = efficiency;
-			}
-		      if (min_efficiency > efficiency)
-			{
-			  min_efficiency = efficiency;
-			}
-			if (max_aspect_ratio_total < aspect_ratio_total_temp) {
-				max_aspect_ratio_total = aspect_ratio_total_temp;
-			}
-
-		    }
-		}
-
-	    }
-	}
+      calc_array[t].is_tag      = is_tag;
+      calc_array[t].is_main_mem = false;
+      calc_array[t].ptr_arr_edge_to_bank_edge_htree_sizing = & array_edge_to_bank_edge_htree_sizing;
+      calc_array[t].ptr_bank_htree_sizing = & bank_htree_sizing;
+      calc_array[t].Nspd_min    = 0.125;
+      pthread_create(&threads[t], NULL, calc_time_mt_wrapper, (void *)(&(calc_array[t])));
     }
+
+    for (uint32_t t = 0; t < nthreads; t++)
+    {
+      pthread_join(threads[t], NULL);
+    }
+
+    for (uint32_t t = 0; t < nthreads; t++)
+    {
+      calc_array[t].data_arr.sort(mem_array::lt);
+      data_arr.merge(calc_array[t].data_arr, mem_array::lt);
+      calc_array[t].tag_arr.sort(mem_array::lt);
+      tag_arr.merge(calc_array[t].tag_arr, mem_array::lt);
+    }
+  }
+
+
+  //Calculate the area, delay and power for all data array partitions (for cache or plain RAM).
+  if(!g_ip.fully_assoc)
+  {
+    is_tag              = false;
+    ram_cell_tech_type  = g_ip.data_arr_ram_cell_tech_type;
+    is_dram             = ((ram_cell_tech_type == 3) || (ram_cell_tech_type == 4));
+    init_tech_params(g_ip.F_sz_um, is_tag);
+    array_edge_to_bank_edge_htree_sizing.compute_widths(is_dram);
+    bank_htree_sizing.compute_widths(is_dram);
+
+    for (uint32_t t = 0; t < nthreads; t++)
+    {
+      calc_array[t].is_tag      = is_tag;
+      calc_array[t].is_main_mem = g_ip.is_main_mem;
+      calc_array[t].ptr_arr_edge_to_bank_edge_htree_sizing = & array_edge_to_bank_edge_htree_sizing;
+      calc_array[t].ptr_bank_htree_sizing = & bank_htree_sizing;
+      calc_array[t].Nspd_min    = (double)(g_ip.out_w)/(double)(g_ip.block_sz*8);
+      pthread_create(&threads[t], NULL, calc_time_mt_wrapper, (void *)(&(calc_array[t])));
+    }
+
+    for (uint32_t t = 0; t < nthreads; t++)
+    {
+      pthread_join(threads[t], NULL);
+    }
+
+    data_arr.clear();
+    for (uint32_t t = 0; t < nthreads; t++)
+    {
+      calc_array[t].data_arr.sort(mem_array::lt);
+      data_arr.merge(calc_array[t].data_arr, mem_array::lt);
+    }
+
+    if (!pure_ram)
+    {
+      for (miter = tag_arr.begin(); miter != tag_arr.end(); ++miter)
+      {
+        // find the tag array with the best access time
+        double acc_time_tag_arr = (*miter)->access_time;
+        if (acc_time_tag_arr < best_acc_time_tag_arr)
+        {
+          best_acc_time_tag_arr = acc_time_tag_arr;
+          best_acc_time_tag_arr_iter = miter;
+        }
+      }
+
+      // find best area for cache
+      for (miter = data_arr.begin(); miter != data_arr.end(); ++miter)
+      {
+        area = (*best_acc_time_tag_arr_iter)->area + (*miter)->area;
+        efficiency = ((*best_acc_time_tag_arr_iter)->area_ram_cells + (*miter)->area_ram_cells) * 100 / area;
+        if (efficiency > max_efficiency)
+        {
+          max_efficiency = efficiency;
+        }
+      }
+    }
+    else
+    { //Pure RAM, find best area.
+      for (miter = data_arr.begin(); miter != data_arr.end(); ++miter)
+      {
+        area = (*miter)->area;
+        efficiency = (*miter)->area_ram_cells * 100 / area;
+        if (efficiency > max_efficiency)
+        {
+          max_efficiency = efficiency;
+        }
+      }
+    }
+  }
+
+  // find all solutions that are within MAXAREACONSTRAINT_PERC of the best area solution.
+  if (g_ip.fully_assoc)
+  { //fully-associative cache
+    list<mem_array *>::iterator t_i, d_i;
+    for (t_i = tag_arr.begin(), d_i = data_arr.begin(); t_i != tag_arr.end(); ++t_i, ++d_i)
+    {
+      area = (*t_i)->area + (*d_i)->area;
+      efficiency = ((*t_i)->area_ram_cells + (*d_i)->area_ram_cells) * 100 / area;
+      if (efficiency > max_efficiency)
+      {
+        max_efficiency = efficiency;
+      }
+    }
+    for (t_i = tag_arr.begin(), d_i = data_arr.begin(); t_i != tag_arr.end(); ++t_i, ++d_i)
+    {
+      best_sol.back()->area = (*t_i)->area + (*d_i)->area;
+      best_sol.back()->access_time = (*t_i)->access_time + (*d_i)->access_time;
+      best_sol.back()->cycle_time = MAX((*t_i)->cycle_time, (*d_i)->cycle_time);
+      best_sol.back()->efficiency = ((*t_i)->area_ram_cells + (*d_i)->area_ram_cells) * 100 / best_sol.back()->area;
+      percent_diff_efficiency_wrt_max_efficiency = (max_efficiency - best_sol.back()->efficiency) * 100 / max_efficiency;
+
+      aspect_ratio = (*t_i)->height / (*t_i)->width;
+      perc_away_from_aspect_ratio = _abs((aspect_ratio - STACKED_DIE_LAYER_ASPECT_RATIO)* 100 / STACKED_DIE_LAYER_ASPECT_RATIO);
+      stacked_die_allot_area = STACKED_DIE_LAYER_ALLOTED_AREA_mm2;
+      perc_wasted_area = 0;
+      
+      if (stacked_die_allot_area != 0)
+      {
+        perc_wasted_area = _abs((stacked_die_allot_area - best_sol.back()->area * 1e-6) * 100 / stacked_die_allot_area);
+      }
+      if ((is_dram == false && best_sol.back()->cycle_time <= TARGET_CYCLE_TIME_ns * 1e-9) || is_dram == true)
+      {
+        if (((STACKED_DIE_LAYER_ALLOTED_AREA_mm2 > 0) && 
+             (MAX_PERCENT_AWAY_FROM_ASPECT_RATIO > 100) && 
+             (best_sol.back()->area * 1e-6 <= STACKED_DIE_LAYER_ALLOTED_AREA_mm2) &&
+             (perc_wasted_area <= MAX_PERCENT_AWAY_FROM_ALLOTED_AREA) &&
+             (best_sol.back()->efficiency >= MIN_AREA_EFFICIENCY)) ||
+            ((STACKED_DIE_LAYER_ALLOTED_AREA_mm2 > 0) && 
+             (MAX_PERCENT_AWAY_FROM_ASPECT_RATIO <= 100) && 
+             (perc_away_from_aspect_ratio <= MAX_PERCENT_AWAY_FROM_ASPECT_RATIO)) ||
+            ((STACKED_DIE_LAYER_ALLOTED_AREA_mm2 == 0) && 
+             (percent_diff_efficiency_wrt_max_efficiency <= g_ip.max_area_t_constraint_perc)))
+        {
+          
+          best_sol.back()->tag_array_iter  = t_i;
+          best_sol.back()->data_array_iter = d_i;
+          best_sol.back()->total_power = (*t_i)->power + (*d_i)->power;
+          if (best_sol.back()->access_time < min_acc_time_in_best_area_solutions)
+          {
+            min_acc_time_in_best_area_solutions = best_sol.back()->access_time;
+          }
+          best_sol.push_back(new solution);
+        }
+      }
+    }
+  }
+  else if(!pure_ram) 
+  { //cache
+    for (miter = data_arr.begin(); miter != data_arr.end(); ++miter)
+    {
+      mem_array * tag_array = (*best_acc_time_tag_arr_iter);
+      best_sol.back()->area = tag_array->area + (*miter)->area ;
+      best_sol.back()->cycle_time = MAX((*miter)->cycle_time, tag_array->cycle_time);
+      best_sol.back()->efficiency = (tag_array->area_ram_cells + (*miter)->area_ram_cells) * 100 / best_sol.back()->area;
+      percent_diff_efficiency_wrt_max_efficiency = 
+        (max_efficiency - best_sol.back()->efficiency) * 100 / max_efficiency;
+
+      aspect_ratio = (*miter)->height / (*miter)->width;
+      perc_away_from_aspect_ratio = _abs((aspect_ratio - STACKED_DIE_LAYER_ASPECT_RATIO)* 100 / STACKED_DIE_LAYER_ASPECT_RATIO);
+      stacked_die_allot_area = STACKED_DIE_LAYER_ALLOTED_AREA_mm2;
+      perc_wasted_area = 0;
+      
+      if (stacked_die_allot_area != 0)
+      {	
+        perc_wasted_area = _abs((stacked_die_allot_area - best_sol.back()->area * 1e-6) * 100 / stacked_die_allot_area);
+      }
+      if ((is_dram == false && best_sol.back()->cycle_time <= TARGET_CYCLE_TIME_ns * 1e-9) || is_dram == true)
+      {
+        if(((STACKED_DIE_LAYER_ALLOTED_AREA_mm2 > 0) && 
+            (MAX_PERCENT_AWAY_FROM_ASPECT_RATIO > 100) && 
+            (best_sol.back()->area * 1e-6 <= STACKED_DIE_LAYER_ALLOTED_AREA_mm2) &&
+            (perc_wasted_area <= MAX_PERCENT_AWAY_FROM_ALLOTED_AREA) &&
+            (best_sol.back()->efficiency > 30)) ||
+           ((STACKED_DIE_LAYER_ALLOTED_AREA_mm2 > 0) &&
+            (MAX_PERCENT_AWAY_FROM_ASPECT_RATIO <= 100) && 
+            (perc_away_from_aspect_ratio <= MAX_PERCENT_AWAY_FROM_ASPECT_RATIO)) ||
+           ((STACKED_DIE_LAYER_ALLOTED_AREA_mm2 == 0) &&
+            (percent_diff_efficiency_wrt_max_efficiency <= g_ip.max_area_t_constraint_perc)))
+        {
+          best_sol.back()->tag_array_iter  = best_acc_time_tag_arr_iter;
+          best_sol.back()->data_array_iter = miter;
+          if(g_ip.is_seq_acc)
+          { //Sequential access
+            best_sol.back()->access_time = tag_array->access_time + (*miter)->access_time;
+          }
+          else if(g_ip.fast_access)
+          {
+            best_sol.back()->access_time = MAX(tag_array->access_time, (*miter)->access_time);
+          }
+          else
+          { //normal access
+            if (g_ip.tag_assoc > 1)
+            { //set-associative cache
+              best_sol.back()->access_time = MAX(tag_array->access_time + (*miter)->delay_senseamp_mux_decoder,
+                  (*miter)->delay_before_subarray_output_driver) +
+                  (*miter)->delay_from_subarray_output_driver_to_output;
+            }
+            else
+            { //direct-mapped cache
+              best_sol.back()->access_time = MAX(tag_array->access_time, (*miter)->access_time);
+            }
+          }
+          best_sol.back()->total_power = tag_array->power + (*miter)->power;
+          if (best_sol.back()->access_time < min_acc_time_in_best_area_solutions)
+          {
+            min_acc_time_in_best_area_solutions = best_sol.back()->access_time;
+          }
+          best_sol.push_back(new solution);
+        }
+      }
+    }
+  }
+  else
+  { //plain RAM
+    for (miter = data_arr.begin(); miter != data_arr.end(); ++miter)
+    {
+      best_sol.back()->area = (*miter)->area;
+      best_sol.back()->efficiency =  (*miter)->area_ram_cells * 100 / best_sol.back()->area;
+      percent_diff_efficiency_wrt_max_efficiency = 
+        (max_efficiency - best_sol.back()->efficiency) * 100 / max_efficiency;
+
+      aspect_ratio = (*miter)->height / (*miter)->width;
+      perc_away_from_aspect_ratio = _abs((aspect_ratio - STACKED_DIE_LAYER_ASPECT_RATIO)* 100 / STACKED_DIE_LAYER_ASPECT_RATIO);
+      if (((STACKED_DIE_LAYER_ALLOTED_AREA_mm2 > 0) && 
+           (MAX_PERCENT_AWAY_FROM_ASPECT_RATIO > 100) &&
+           ((*miter)->area * 1e-6 <= STACKED_DIE_LAYER_ALLOTED_AREA_mm2)) ||
+          ((STACKED_DIE_LAYER_ALLOTED_AREA_mm2 > 0) &&
+           (MAX_PERCENT_AWAY_FROM_ASPECT_RATIO <= 100) &&
+           (perc_away_from_aspect_ratio <= MAX_PERCENT_AWAY_FROM_ASPECT_RATIO)) ||
+          ((STACKED_DIE_LAYER_ALLOTED_AREA_mm2 == 0) &&
+           (percent_diff_efficiency_wrt_max_efficiency <= g_ip.max_area_t_constraint_perc)))
+      {
+        best_sol.back()->data_array_iter = miter;
+        best_sol.back()->access_time = (*miter)->access_time;
+        best_sol.back()->cycle_time  = (*miter)->cycle_time;
+        best_sol.back()->total_power = (*miter)->power;
+        if (best_sol.back()->access_time < min_acc_time_in_best_area_solutions)
+        {
+          min_acc_time_in_best_area_solutions = best_sol.back()->access_time;
+        }
+        best_sol.push_back(new solution);
+      }
+    }
+  }
+  best_sol.pop_back();
+
+  //Inside the best area solutions, find all solutions that are within MAXACCTIMECONSTRAINT_PERC of 
+  //min_acc_time_in_best_area.
+  //We apply the objective function only to these solutions. 
+  for (siter = best_sol.begin(); siter != best_sol.end(); ++siter)
+  {
+    percent_diff_acc_time_wrt_min_acc_time = 
+      ((*siter)->access_time - min_acc_time_in_best_area_solutions) * 100 / min_acc_time_in_best_area_solutions;
+    if (percent_diff_acc_time_wrt_min_acc_time <= g_ip.max_acc_t_constraint_perc)
+    {
+      best_delay_solution.push_back(*siter);
+    }
+  }
+  
+  
+  //Find the values for best dynamic energy, dynamic power, best leakage power and best cycle time.
+  for (siter = best_delay_solution.begin(); siter != best_delay_solution.end(); ++siter)
+  {
+    if (result.min_dynamic_energy > (*siter)->total_power.readOp.dynamic)
+    {
+      result.min_dynamic_energy = (*siter)->total_power.readOp.dynamic;
+    }
+    if (result.min_dynamic_power > (*siter)->total_power.readOp.dynamic / (*siter)->cycle_time)
+    {
+      result.min_dynamic_power = (*siter)->total_power.readOp.dynamic / (*siter)->cycle_time;
+    }
+    if (result.min_leakage_power > (*siter)->total_power.readOp.leakage)
+    {
+      result.min_leakage_power = (*siter)->total_power.readOp.leakage;
+    }
+    if (result.min_cycle_time > (*siter)->cycle_time)
+    {
+      result.min_cycle_time = (*siter)->cycle_time;
+    }
+  }
+  
+  weight_dynamic_energy = 1;
+  weight_leakage_power  = 1;
+  weight_dynamic_power  = 1;
+  weight_cycle_time     = 1;
+  
+  for (siter = best_delay_solution.begin(); siter != best_delay_solution.end(); ++siter)
+  {
+    if ((objective_function(
+            g_ip.obj_func_dyn_energy,
+            g_ip.obj_func_dyn_power,
+            g_ip.obj_func_leak_power, 
+            g_ip.obj_func_cycle_t,
+            weight_dynamic_energy,
+            weight_dynamic_power,
+            weight_leakage_power,
+            weight_cycle_time,
+            result.total_power.readOp.dynamic / result.min_dynamic_energy,
+            (result.total_power.readOp.dynamic / result.cycle_time) / result.min_dynamic_power, 
+            result.total_power.readOp.leakage / result.min_leakage_power, 
+            result.cycle_time / result.min_cycle_time) >
+         objective_function(
+           g_ip.obj_func_dyn_energy,
+           g_ip.obj_func_dyn_power,
+           g_ip.obj_func_leak_power, 
+           g_ip.obj_func_cycle_t,
+           weight_dynamic_energy,
+           weight_dynamic_power,
+           weight_leakage_power, 
+           weight_cycle_time,
+           (*siter)->total_power.readOp.dynamic / result.min_dynamic_energy,
+           ((*siter)->total_power.readOp.dynamic / (*siter)->cycle_time) / result.min_dynamic_power, 
+           (*siter)->total_power.readOp.leakage / result.min_leakage_power, 
+           (*siter)->cycle_time / result.min_cycle_time)) || siter == best_delay_solution.begin())
+    {
+      result.total_power       = (*siter)->total_power;
+      fin_res->area            = (*siter)->area * 1e-6;
+      result.cycle_time        = (*siter)->cycle_time;
+      result.access_time       = (*siter)->access_time;
+      fin_res->area_efficiency = (*siter)->efficiency;
+      list<mem_array *>::iterator d_i = (*siter)->data_array_iter;
+      result.best_Nspd = (*d_i)->Nspd;
+      result.best_Ndwl = (*d_i)->Ndwl;
+      result.best_Ndbl = (*d_i)->Ndbl;
+      result.best_data_deg_bitline_muxing = (*d_i)->deg_bitline_muxing;
+      result.best_Ndsam_lev_1 = (*d_i)->Ndsam_lev_1;
+      result.best_Ndsam_lev_2 = (*d_i)->Ndsam_lev_2;
+      if (!pure_ram)
+      {
+        list<mem_array *>::iterator t_i = (*siter)->tag_array_iter;
+        result.best_Ntspd = (*t_i)->Nspd;
+        result.best_Ntwl  = (*t_i)->Ndwl;
+        result.best_Ntbl  = (*t_i)->Ndbl;
+        result.best_tag_deg_bitline_muxing = (*t_i)->deg_bitline_muxing;
+        result.best_Ntsam_lev_1 = (*t_i)->Ndsam_lev_1;
+        result.best_Ntsam_lev_2 = (*t_i)->Ndsam_lev_2;
+      }
+    }
+  }
+  
+  fin_res->access_time     = result.access_time;
+  fin_res->cycle_time      = result.cycle_time;
+  fin_res->power           = result.total_power;
+
+  if (!pure_ram)
+  {
+    is_tag              = true;
+    ram_cell_tech_type  = g_ip.tag_arr_ram_cell_tech_type;
+    is_dram             = ((ram_cell_tech_type == 3) || (ram_cell_tech_type == 4));
+    init_tech_params(g_ip.F_sz_um, is_tag);
+    array_edge_to_bank_edge_htree_sizing.compute_widths(is_dram);
+    bank_htree_sizing.compute_widths(is_dram);
+    is_valid_partition = calculate_time(
+        true, pure_ram, result.best_Ntspd, result.best_Ntwl, 
+        result.best_Ntbl, result.best_tag_deg_bitline_muxing,
+        result.best_Ntsam_lev_1, result.best_Ntsam_lev_2,
+        NULL, 1, &fin_res->tag_array, fin_res,
+        array_edge_to_bank_edge_htree_sizing,
+        bank_htree_sizing,
+        false);
+
+    is_tag              = false;
+    ram_cell_tech_type  = g_ip.data_arr_ram_cell_tech_type;
+    is_dram             = ((ram_cell_tech_type == 3) || (ram_cell_tech_type == 4));
+    init_tech_params(g_ip.F_sz_um, is_tag);
+    array_edge_to_bank_edge_htree_sizing.compute_widths(is_dram);
+    bank_htree_sizing.compute_widths(is_dram);
+    is_valid_partition = calculate_time(
+        false, pure_ram, result.best_Nspd, result.best_Ndwl, 
+        result.best_Ndbl, result.best_data_deg_bitline_muxing,
+        result.best_Ndsam_lev_1, result.best_Ndsam_lev_2,
+        NULL, 1, &fin_res->data_array, fin_res,
+        array_edge_to_bank_edge_htree_sizing,
+        bank_htree_sizing,
+        g_ip.is_main_mem);
+  }
+  else
+  {
+    is_tag              = false;
+    ram_cell_tech_type  = g_ip.data_arr_ram_cell_tech_type;
+    is_dram             = ((ram_cell_tech_type == 3) || (ram_cell_tech_type == 4));
+    init_tech_params(g_ip.F_sz_um, is_tag);
+    array_edge_to_bank_edge_htree_sizing.compute_widths(is_dram);
+    bank_htree_sizing.compute_widths(is_dram);
+    is_valid_partition = calculate_time(
+        false, pure_ram, result.best_Nspd, result.best_Ndwl,
+        result.best_Ndbl, result.best_data_deg_bitline_muxing,
+        result.best_Ndsam_lev_1, result.best_Ndsam_lev_2,
+        NULL, 1, &fin_res->data_array, fin_res,
+        array_edge_to_bank_edge_htree_sizing,
+        bank_htree_sizing,
+        g_ip.is_main_mem);
+    fin_res->tag_array.perc_leak_mats = 0;
+    fin_res->tag_array.perc_active_mats = 0;
+  }
+  fin_res->leak_power_with_sleep_transistors_in_mats =
+    (100 - fin_res->data_array.perc_leak_mats - fin_res->tag_array.perc_leak_mats) * fin_res->power.readOp.leakage / 100 +
+    fin_res->data_array.perc_active_mats * (fin_res->data_array.perc_leak_mats * fin_res->power.readOp.leakage / 100) / 100 + 
+    fin_res->tag_array.perc_active_mats  * (fin_res->tag_array.perc_leak_mats  * fin_res->power.readOp.leakage / 100) / 100  +
+    ((100 - fin_res->data_array.perc_active_mats) * (fin_res->data_array.perc_leak_mats * fin_res->power.readOp.leakage / 100) / 100) / MAT_LEAKAGE_REDUCTION_DUE_TO_SLEEP_TRANSISTORS_FACTOR +
+    ((100 - fin_res->tag_array.perc_active_mats)  * (fin_res->tag_array.perc_leak_mats  * fin_res->power.readOp.leakage / 100) / 100) / MAT_LEAKAGE_REDUCTION_DUE_TO_SLEEP_TRANSISTORS_FACTOR;
+
+    
+  if (fin_res)
+  {
+    fin_res->cache_ht = MAX(fin_res->tag_array.all_banks_height, fin_res->data_array.all_banks_height);
+    fin_res->cache_len = fin_res->tag_array.all_banks_width + fin_res->data_array.all_banks_width;
+  }
+
+  fin_res->valid = is_valid_partition;
+  fin_res->ip    = g_ip;
+  fin_res->vdd_periph_global = g_tp.peri_global.Vdd; 
 }
-
-
 

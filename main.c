@@ -1,6 +1,6 @@
 /*------------------------------------------------------------
- *                              CACTI 4.0
- *         Copyright 2005 Hewlett-Packard Development Corporation
+ *                              CACTI 5.3
+ *         Copyright 2008 Hewlett-Packard Development Corporation
  *                         All Rights Reserved
  *
  * Permission to use, copy, and modify this software and its documentation is
@@ -39,61 +39,63 @@
  * SOFTWARE.
  *------------------------------------------------------------*/
 
-#include "def.h"
-#include "areadef.h"
-#include "stdio.h"
-#include "leakage.h"
-#include "time.h"
 #include "io.h"
-#include <string.h>
+#include <iostream>
+
+using namespace std;
 
 
-
-/*------------------------------------------------------------------------------*/
-      
 int main(int argc,char *argv[])
 {
-    total_result_type result2;
-	
-	//Note that the following command line options are permitted:
-	//C B A TECH Nbanks
-    //C B A TECH RWP ERP EWP Nbanks
-	//C B A RWP ERP EWP NSER Nbanks TECH OUTPUTWIDTH CUSTOMTAG TAGWIDTH ACCESSMODE PURESRAM
-	//(CUSTOMTAG should be set to 1 or 0 depending on whether the tag width needs to be
-	//changed (1) or not(0). TAGWIDTH IS the desired tag width if the tag width is being 
-	//changed. ACCESSMODE = 0 for normal access, ACCESSMODE = 1 for sequential access,
-	//ACCESSMODE = 2 for fast access. PURESRAM = 1 if the memory is a scratchpad memory,
-	//PURESRAM = 0 if the memory is a cache
+  final_results result2;
 
-    if (input_data(argc,argv) == ERROR) exit(1);
-	else{
-		if (argc == 6){
-			if (strcmp(argv[3],"FA") == 0) {
-				result2 = cacti_interface(atoi(argv[1]), atoi(argv[2]), 0, 1, 0, 0, 0, atoi(argv[5]), atof(argv[4]), 64, 0, 0, 0, 0);
-			} 
-			else if (strcmp(argv[3],"DM") == 0){
-					result2 = cacti_interface(atoi(argv[1]), atoi(argv[2]), 1, 1, 0, 0, 0, atoi(argv[5]), atof(argv[4]), 64, 0, 0, 0, 0);
-				 }
-				 else{
-					 result2 = cacti_interface(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]), 1, 0, 0, 0, atoi(argv[5]), atof(argv[4]), 64, 0, 0, 0, 0);
-				 }
-		}
-		else if (argc == 9){
-				if (strcmp(argv[3],"FA") == 0) {
-					result2 = cacti_interface(atoi(argv[1]), atoi(argv[2]), 0, 1, 0, 0, 0, atoi(argv[5]), atof(argv[4]), 64, 0, 0, 0, 0);
-				} 
-				else if (strcmp(argv[3],"DM") == 0){
-						result2 = cacti_interface(atoi(argv[1]), atoi(argv[2]), 1, 1, 0, 0, 0, atoi(argv[5]), atof(argv[4]), 64, 0, 0, 0, 0);
-					 }
-					 else{
-						result2 = cacti_interface(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]), atoi(argv[5]), atoi(argv[6]), atoi(argv[7]), 0, atoi(argv[8]), atof(argv[4]), 64, 0, 0, 0, 0);
-						 }
-			   }
-			  else {
-					result2 = cacti_interface(atoi(argv[1]), atoi(argv[2]), atoi(argv[3]), atoi(argv[4]), atoi(argv[5]), atoi(argv[6]), atoi(argv[7]), atoi(argv[8]), atof(argv[9]), atoi(argv[10]), atoi(argv[11]), atoi(argv[12]), atoi(argv[13]), atoi(argv[14]));
-			  }
-	}
+  if (argc != 37)
+  {
+    cout << "The number of arguments must be 36 -- please refer to README file" << endl;
+    exit(1);
+  }
+  else
+  {
+    result2 = cacti_interface(atoi(argv[ 1]),
+                              atoi(argv[ 2]),
+                              atoi(argv[ 3]),
+                              atoi(argv[ 4]),
+                              atoi(argv[ 5]),
+                              atoi(argv[ 6]),
+                              atoi(argv[ 7]),
+                              atoi(argv[ 8]),
+                              atof(argv[ 9]),
+                              atoi(argv[10]),
+                              atoi(argv[11]),
+                              atoi(argv[12]),
+                              atoi(argv[13]),
+                              atoi(argv[14]),
+                              atoi(argv[15]),
+                              atoi(argv[16]),
+                              atoi(argv[17]),
+                              atoi(argv[18]),
+                              atoi(argv[19]),
+                              atoi(argv[20]),
+                              atoi(argv[21]),
+                              atoi(argv[22]),
+                              atoi(argv[23]),
+                              atoi(argv[24]),
+                              atoi(argv[25]),
+                              atoi(argv[26]),
+                              atoi(argv[27]),
+                              atoi(argv[28]),
+                              atoi(argv[29]),
+                              atoi(argv[30]),
+                              atof(argv[31]),
+                              atof(argv[32]),
+                              atof(argv[33]),
+                              atoi(argv[34]),
+                              atoi(argv[35]),
+                              atoi(argv[36]));
+  }
+  
+  output_data_csv(result2);
 
-	output_data(&result2.result,&result2.area,&result2.params);
+  return 0;
 }
 
