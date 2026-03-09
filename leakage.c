@@ -38,22 +38,83 @@
  * ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
  * SOFTWARE.
  *------------------------------------------------------------*/
-#include "def.h"
-#include "cacti_interface.h"
 #include "leakage.h"
 
-int powers (int base, int n);
-double logtwo (double x);
-double gatecap (double width,double  wirelength);
-double gatecappass (double width,double  wirelength);
-double draincap(double width, int nchannel, int stack,
-				int next_arg_thresh_folding_width_or_height_cell, double fold_dimension);
-double transresswitch (double width,int nchannel,int stack);
-double transreson (double width,int nchannel,int stack);
-double restowidth (double res,int nchannel);
-double horowitz (double inputramptime,double  tf,double  vs1,double  vs2,int rise);
-double logbasetwo (double x);
-double logbasefour(double x);
-void compute_delay_optimal_repeater(double length, double *opt_sizing,
-									  int *opt_number_repeaters, double *delay, 
-									  powerDef *power);
+double FO4;
+
+double cmos_ileakage(double nWidth, double pWidth, int temp) 
+{
+	double leakage = 0.0;
+	static double norm_nmos_leakage = 0;
+	static double norm_pmos_leakage = 0;
+
+	if((!is_dram)&&(is_sram_cell)){//SRAM cell access transistor
+		norm_nmos_leakage = I_off_n_sram_cell_transistor[temp-300];
+		norm_pmos_leakage = I_off_p_sram_cell_transistor[temp-300];
+	}
+	else
+		if((!is_dram)&&(is_wordline_transistor)){//SRAM wordline transistor
+			norm_nmos_leakage = I_off_n_sram_cell_transistor[temp-300];
+			norm_pmos_leakage = I_off_p_sram_cell_transistor[temp-300];
+		}
+		else
+			if((is_dram)&&(is_wordline_transistor)){//DRAM wordline transistor
+				norm_nmos_leakage = I_off_n_dram_wordline_transistor[temp-300];
+				norm_pmos_leakage = I_off_p_dram_wordline_transistor[temp-300];
+			}
+			else{//DRAM or SRAM all other transistors
+				norm_nmos_leakage = I_off_n_periph_global[temp-300];
+				norm_pmos_leakage = I_off_p_periph_global[temp-300];
+			}
+			leakage = nWidth * norm_nmos_leakage + pWidth * norm_pmos_leakage;
+	return leakage;
+}
+
+
+double simplified_nmos_leakage(double nwidth, int temp)
+{
+	double nIleak;
+	if((!is_dram)&&(is_access_transistor)){//SRAM cell access transistor
+		nIleak = nwidth * I_off_n_sram_cell_transistor[temp-300];
+	}
+	else
+		if((!is_dram)&&(is_wordline_transistor)){//SRAM wordline transistor
+			nIleak = nwidth * I_off_n_sram_cell_transistor[temp-300];
+		}
+		else
+			if((is_dram)&&(is_wordline_transistor)){//DRAM wordline transistor
+				nIleak = nwidth * I_off_n_dram_wordline_transistor[temp-300];	    
+			}
+			else{//DRAM or SRAM all other transistors
+				nIleak = nwidth * I_off_n_periph_global[temp-300];	
+			}
+	return nIleak;
+}
+
+
+double simplified_pmos_leakage(double pwidth, int temp)
+{
+	double pIleak;
+	
+	if((!is_dram)&&(is_wordline_transistor)){//SRAM wordline transistor
+			pIleak = pwidth * I_off_p_sram_cell_transistor[temp-300];
+		}
+	else
+		if((is_dram)&&(is_wordline_transistor)){//DRAM wordline transistor
+			pIleak = pwidth * I_off_p_dram_wordline_transistor[temp-300];	    
+		}
+		else{//DRAM or SRAM all other transistors
+			pIleak = pwidth * I_off_p_periph_global[temp-300];	
+		}
+		return pIleak;
+}
+
+
+
+  
+
+   
+  
+
+
+

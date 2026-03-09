@@ -1,6 +1,6 @@
 /*------------------------------------------------------------
- *                              CACTI 5.3
- *         Copyright 2008 Hewlett-Packard Development Corporation
+ *                              CACTI 6.0
+ *         Copyright 2007 Hewlett-Packard Development Corporation
  *                         All Rights Reserved
  *
  * Permission to use, copy, and modify this software and its documentation is
@@ -38,13 +38,53 @@
  * ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
  * SOFTWARE.
  *------------------------------------------------------------*/
-#ifndef __IO_H__
-#define __IO_H__
 
-#include "const.h"
-#include "cacti_interface.h"
+#ifndef _ioh
+#define _ioh
 
-void output_data_csv(const final_results & fin_res);
+#include "time.h"
+#include "router.h"
 
+typedef struct fig_mat_dim {
+    int h;
+    int w;
+    int top_y;
+    int bottom_y;
+}fig_mat_dim_t;
+
+/* Utility functions */
+void strreverse(char *, char*);
+#ifdef __linux__
+void itoa(int, char*, int);
+#endif
+void read_file();
+int get_cpucount();
+
+/* output functions */
+void dump_input_args(input_params_t *b);
+void output_UCA (uca_org_t *fr);
+void output_NUCA (nuca_org_t *fr);
+
+/* output figure */
+void insert_mat (int x, int y, int l, int w, FILE *file);
+void insert_line (int x1, int y1, int x2, int y2, FILE *file);
+void print_mat (FILE *fp);
+void print_headers (char *c, int y, int lx, 
+    int rx, FILE *fp, final_results *fs);
+void print_array (char *c, int ty, int by, int lx, 
+        int rx, FILE *fp, final_results *fs, 
+        struct fig_mat_dim *matdim);
+void fig_out (final_results *fr);
+
+void validate_cache_args (input_params_t *params);
+int parse_cmd_args(int argc,char *argv[], input_params_t *params);
+void parse_cfg(input_params_t *params);
+void sim_cache(int argc,char *argv[]);
 
 #endif
+
+//void * sim_nucaold(bank_out_t *);
+//bank_out_t *
+//find_optimal_config(bank_out_t **, int);
+
+//void dump_bank_out(bank_out_t *);

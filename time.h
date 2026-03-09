@@ -1,6 +1,6 @@
 /*------------------------------------------------------------
- *                              CACTI 5.3
- *         Copyright 2008 Hewlett-Packard Development Corporation
+ *                              CACTI 6.0
+ *         Copyright 2007 Hewlett-Packard Development Corporation
  *                         All Rights Reserved
  *
  * Permission to use, copy, and modify this software and its documentation is
@@ -39,143 +39,35 @@
  * SOFTWARE.
  *------------------------------------------------------------*/
 
-#ifndef __TIME_H__
-#define __TIME_H__
+#ifndef _time
+#define _time
 
-#include "area.h"
+#include "areadef.h"
+#include "basic_circuit.h"
 
-typedef struct {
-  int subbanks;
-  double access_time,cycle_time;
-  double senseext_scale;
-  powerDef total_power;
-  int best_Ndwl,best_Ndbl, best_data_deg_bitline_muxing;
-  int best_Ndsam_lev_1, best_Ndsam_lev_2;
-  double max_leakage_power, max_access_time, max_cycle_time, max_dynamic_power, max_dynamic_energy;
-  double min_leakage_power, min_access_time, min_cycle_time, min_dynamic_power, min_dynamic_energy;
-  double best_Nspd;
-  int best_Ntwl,best_Ntbl, best_tag_deg_bitline_muxing;
-  int best_Ntsam_lev_1, best_Ntsam_lev_2;
-  double best_Ntspd;
-  int best_muxover;
-  powerDef total_routing_power;
-  powerDef total_power_without_routing, total_power_allbanks;
-  double subbank_address_routing_delay;
-  powerDef subbank_address_routing_power;
-  double decoder_delay_data,decoder_delay_tag;
-  powerDef decoder_power_data,decoder_power_tag;
-  double dec_data_driver,dec_data_3to8,dec_data_inv;
-  double dec_tag_driver,dec_tag_3to8,dec_tag_inv;
-  double wordline_delay_data,wordline_delay_tag;
-  powerDef wordline_power_data,wordline_power_tag;
-  double bitline_delay_data,bitline_delay_tag;
-  powerDef bitline_power_data,bitline_power_tag;
-  double sense_amp_delay_data,sense_amp_delay_tag;
-  powerDef sense_amp_power_data,sense_amp_power_tag;
-  double total_out_driver_delay_data;
-  powerDef total_out_driver_power_data;
-  double compare_part_delay;
-  double drive_mux_delay;
-  double selb_delay;
-  powerDef compare_part_power, drive_mux_power, selb_power;
-  double data_output_delay;
-  powerDef data_output_power;
-  double drive_valid_delay;
-  powerDef drive_valid_power;
-  double precharge_delay;
-  int data_nor_inputs;
-  int tag_nor_inputs;
-} result_type;
-
-
-struct mem_array
-{
-  int    Ndwl;
-  int    Ndbl;
-  double Nspd;
-  int    deg_bitline_muxing;
-  int    Ndsam_lev_1;
-  int    Ndsam_lev_2;
-  double access_time;
-  double cycle_time;
-  double multisubbank_interleave_cycle_time;
-  double area_ram_cells;
-  double area;
-  powerDef power;
-  double delay_senseamp_mux_decoder;
-  double delay_before_subarray_output_driver;
-  double delay_from_subarray_output_driver_to_output;
-  double height;
-  double width;
-
-  static bool lt(const mem_array * m1, const mem_array * m2)
-  {
-    if (m1->Nspd < m2->Nspd) return true;
-    else if (m1->Nspd > m2->Nspd) return false;
-    else if (m1->Ndwl < m2->Ndwl) return true;
-    else if (m1->Ndwl > m2->Ndwl) return false;
-    else if (m1->Ndbl < m2->Ndbl) return true;
-    else if (m1->Ndbl > m2->Ndbl) return false;
-    else if (m1->deg_bitline_muxing < m2->deg_bitline_muxing) return true;
-    else if (m1->deg_bitline_muxing > m2->deg_bitline_muxing) return false;
-    else if (m1->Ndsam_lev_1 < m2->Ndsam_lev_1) return true;
-    else if (m1->Ndsam_lev_1 > m2->Ndsam_lev_1) return false;
-    else if (m1->Ndsam_lev_2 < m2->Ndsam_lev_2) return true;
-    else return false;
-  }
-
-};
-
-
-typedef struct {
-  int    tag_array_index;
-  int    data_array_index;
-  list<mem_array *>::iterator tag_array_iter;
-  list<mem_array *>::iterator data_array_iter;
-  double access_time;
-  double cycle_time;
-  double area;
-  double efficiency;
-  powerDef total_power;
-} solution;
-
-
-bool calculate_time(
-    bool is_tag,
-    int pure_ram,
-    double Nspd,
-    unsigned int Ndwl, 
-    unsigned int Ndbl,
-    unsigned int Ndcm,
-    unsigned int Ndsam_lev_1,
-    unsigned int Ndsam_lev_2,
-    mem_array *ptr_array,
-    int flag_results_populate,
-    results_mem_array *ptr_results,
-    final_results *ptr_fin_res,
-    const ArrayEdgeToBankEdgeHtreeSizing & arr_edge_to_bank_edge_htree_sizing,
-    const BankHtreeSizing & bank_htree_sizing,
-    bool is_main_mem);
-
-
-void do_it(final_results *fin_res);
-void init_tech_params(double tech, bool is_tag);
-
-
-struct calc_time_mt_wrapper_struct
-{
-  uint32_t tid;
-  bool     is_tag;
-  bool     pure_ram;
-  bool     is_main_mem;
-  double   Nspd_min;
-
-  list<mem_array *> data_arr;
-  list<mem_array *> tag_arr;
-  const ArrayEdgeToBankEdgeHtreeSizing * ptr_arr_edge_to_bank_edge_htree_sizing;
-  const BankHtreeSizing * ptr_bank_htree_sizing;
-};
-
-void *calc_time_mt_wrapper(void * void_obj);
-
+extern float cumm_per[1024];
+extern router_stats_t router_s[ROUTER_TYPES];
+//extern double contention[4][7];
+extern double FREQUENCY;
+extern int cont_stats[2][5][ROUTER_TYPES][7][8];
+extern int core_in;
+double wire_res(double, double, double);
+double wire_cap(double, double, double);
+void calc_wire_stats2 (enum wire_type wire_model, wire_stats_t *wire_st) ;
+double signal_rise_time (); 
+void free_mem (results_mem_array **tag_arr, int t, results_mem_array **data_arr,
+            int d, uca_res_lentry_t *ll);
+void free_mem2 (nuca_res_lentry_t *ll);
+uca_res_lentry_t* sim_uca(uca_org_t *res);
+void print_nuca_pda (nuca_org_t *nres);
+void output_all (uca_org_t *fr);
+void update_min_values (uca_org_t *res, double *delay, double *dyn,
+                   double *leak, double *cycle, double *area);
+void update_output (uca_org_t *res, uca_org_t *uca_res);
+void find_cycle(uca_org_t *res);
+void find_area(uca_org_t *res);
+void find_acc_time(uca_org_t *res);
+void find_power(uca_org_t *res);
+void sim_nuca(nuca_org_t *);
+void dump_input_args (input_params_t *);
 #endif

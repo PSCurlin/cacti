@@ -1,6 +1,6 @@
 /*------------------------------------------------------------
- *                              CACTI 5.3
- *         Copyright 2008 Hewlett-Packard Development Corporation
+ *                              CACTI 6.0
+ *         Copyright 2007 Hewlett-Packard Development Corporation
  *                         All Rights Reserved
  *
  * Permission to use, copy, and modify this software and its documentation is
@@ -38,49 +38,30 @@
  * ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
  * SOFTWARE.
  *------------------------------------------------------------*/
-#ifndef __CROSSBAR_H__
-#define __CROSSBAR_H__
 
-#include "area.h"
-#include "decoder.h"
-#include "parameter.h"
-#include <vector>
+#ifndef _router
+#define _router
+#include "cacti_interface.h"
+#include "def.h"
+#include "basic_circuit.h"
+#include "time.h"
 
-using namespace std;
-
-
-class Crossbar
-{
- public:
-  Crossbar(
-      int num_in_ports,
-      int num_out_ports,
-      int num_signals_per_port,
-      double c_output_line_load,
-      bool is_dram_);
-  void compute_widths();
-  double compute_delay(double inrisetime);
-  void compute_area();
- 
- public:
-  int num_in_ports;
-  int num_out_ports;
-  int num_signals_per_port;
-  int min_number_gates;
-  int number_gates_output_line_tristate_buffer;
-  Driver crossbar_input_line_driver;
-  vector<double> width_output_line_tristate_buffer_n;
-  vector<double> width_output_line_tristate_buffer_p;
-  double width_output_line_tristate_buffer_nor2_n;
-  double width_output_line_tristate_buffer_nor2_p;
-  double c_output_line_load;
-  double delay;
-  powerDef power;
-
-  bool is_dram;
-  Area area;
-};
-
-
+void transmitter_delay(pda_res_t *a);
+double signal_rise_time();
+void init_router_params();
+double signal_fall_time();
+double wire_cap(double, double, double);
+double wire_cap2(double, double, double);
+double wire_res(double, double, double);
+long double read_wordline(router_stats_t *);
+long double write_wordline(router_stats_t *);
+long double read_bitline(router_stats_t *);
+long double write_bitline(router_stats_t *);
+long double read_operation(router_stats_t *);
+long double write_operation(router_stats_t *);
+long double crossbar_power(router_stats_t *);
+long double arb_power(router_stats_t *,int);
+//void calc_router_parameters(enum router_type , pda_res_t *);
+void calc_router_parameters2(router_stats_t *);
+void print_router(router_stats_t *);
 #endif
-

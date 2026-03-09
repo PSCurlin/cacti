@@ -1,6 +1,6 @@
 /*------------------------------------------------------------
- *                              CACTI 5.3
- *         Copyright 2008 Hewlett-Packard Development Corporation
+ *                              CACTI 6.0
+ *         Copyright 2007 Hewlett-Packard Development Corporation
  *                         All Rights Reserved
  *
  * Permission to use, copy, and modify this software and its documentation is
@@ -38,64 +38,10 @@
  * ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
  * SOFTWARE.
  *------------------------------------------------------------*/
-
 #include "io.h"
-#include <iostream>
-
-using namespace std;
-
 
 int main(int argc,char *argv[])
 {
-  final_results result2;
-
-  if (argc != 37)
-  {
-    cout << "The number of arguments must be 36 -- please refer to README file" << endl;
-    exit(1);
-  }
-  else
-  {
-    result2 = cacti_interface(atoi(argv[ 1]),
-                              atoi(argv[ 2]),
-                              atoi(argv[ 3]),
-                              atoi(argv[ 4]),
-                              atoi(argv[ 5]),
-                              atoi(argv[ 6]),
-                              atoi(argv[ 7]),
-                              atoi(argv[ 8]),
-                              atof(argv[ 9]),
-                              atoi(argv[10]),
-                              atoi(argv[11]),
-                              atoi(argv[12]),
-                              atoi(argv[13]),
-                              atoi(argv[14]),
-                              atoi(argv[15]),
-                              atoi(argv[16]),
-                              atoi(argv[17]),
-                              atoi(argv[18]),
-                              atoi(argv[19]),
-                              atoi(argv[20]),
-                              atoi(argv[21]),
-                              atoi(argv[22]),
-                              atoi(argv[23]),
-                              atoi(argv[24]),
-                              atoi(argv[25]),
-                              atoi(argv[26]),
-                              atoi(argv[27]),
-                              atoi(argv[28]),
-                              atoi(argv[29]),
-                              atoi(argv[30]),
-                              atof(argv[31]),
-                              atof(argv[32]),
-                              atof(argv[33]),
-                              atoi(argv[34]),
-                              atoi(argv[35]),
-                              atoi(argv[36]));
-  }
-  
-  output_data_csv(result2);
-
-  return 0;
+    sim_cache(argc, argv);
+    return 0;
 }
-
