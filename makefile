@@ -1,8 +1,5 @@
 LIBS = -lm
-#FLAGS = -Wall -O2 -fomit-frame-pointer -msse -march=athlon
-#FLAGS = -Wall -O0
-CC = gcc -g -pthread
-#CC = gcc -g -pthread -pg
+CC = gcc-9 -g -pthread
 
 SRCS = main.c time.c area.c io.c leakage.c technology.c basic_circuit.c def.h areadef.h leakage.h basic_circuit.h io.h time.h cacti_interface.h router.h router.c
 
