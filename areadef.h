@@ -9,15 +9,16 @@
  * of the software, derivative works or modified versions, and any portions
  * thereof, and both notices must appear in supporting documentation.
  *
- * Users of this software agree to the terms and conditions set forth herein, and
- * hereby grant back to Hewlett-Packard Company and its affiliated companies ("HP")
- * a non-exclusive, unrestricted, royalty-free right and license under any changes, 
- * enhancements or extensions  made to the core functions of the software, including 
- * but not limited to those affording compatibility with other hardware or software
- * environments, but excluding applications which incorporate this software.
- * Users further agree to use their best efforts to return to HP any such changes,
- * enhancements or extensions that they make and inform HP of noteworthy uses of
- * this software.  Correspondence should be provided to HP at:
+ * Users of this software agree to the terms and conditions set forth herein,
+ *and hereby grant back to Hewlett-Packard Company and its affiliated companies
+ *("HP") a non-exclusive, unrestricted, royalty-free right and license under any
+ *changes, enhancements or extensions  made to the core functions of the
+ *software, including but not limited to those affording compatibility with
+ *other hardware or software environments, but excluding applications which
+ *incorporate this software. Users further agree to use their best efforts to
+ *return to HP any such changes, enhancements or extensions that they make and
+ *inform HP of noteworthy uses of this software.  Correspondence should be
+ *provided to HP at:
  *
  *                       Director of Intellectual Property Licensing
  *                       Office of Strategy and Technology
@@ -31,7 +32,7 @@
  *
  * THE SOFTWARE IS PROVIDED "AS IS" AND HP DISCLAIMS ALL
  * WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS.   IN NO EVENT SHALL HP 
+ * OF MERCHANTABILITY AND FITNESS.   IN NO EVENT SHALL HP
  * CORPORATION BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
  * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
  * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS
@@ -45,7 +46,7 @@ extern double area_all_datasubarrays;
 extern double area_all_tagsubarrays;
 extern double area_all_dataramcells;
 extern double area_all_tagramcells;
-extern double faarea_all_subarrays ;
+extern double faarea_all_subarrays;
 
 extern double aspect_ratio_data;
 extern double aspect_ratio_tag;
@@ -57,127 +58,131 @@ was: #define Widthptondiff 4.0
 now: is 4* feature size, taken from the Intel 65nm process paper
 */
 
-//v4.1: Making all constants static variables. Initially these variables are based
-//off 0.8 micron process values; later on in init_tech_params function of leakage.c 
-//they are scaled to input tech node parameters
+// v4.1: Making all constants static variables. Initially these variables are
+// based off 0.8 micron process values; later on in init_tech_params function of
+// leakage.c they are scaled to input tech node parameters
 
-//#define Widthptondiff 3.2
+// #define Widthptondiff 3.2
 extern double Widthptondiff;
-/* 
+/*
 was: #define Widthtrack    3.2
 now: 3.2*FEATURESIZE, i.e. 3.2*0.8
 */
-//#define Widthtrack    (3.2*0.8)
+// #define Widthtrack    (3.2*0.8)
 extern double Widthtrack;
-//#define Widthcontact  1.6
+// #define Widthcontact  1.6
 extern double Widthcontact;
-//#define Wpoly         0.8
+// #define Wpoly         0.8
 extern double Wpoly;
-//#define ptocontact    0.4
+// #define ptocontact    0.4
 extern double ptocontact;
-//#define stitch_ramv   6.0 
+// #define stitch_ramv   6.0
 extern double stitch_ramv;
-//#define BitHeight16x2 33.6
-//#define BitHeight1x1 (2*7.746*0.8) /* see below */
+// #define BitHeight16x2 33.6
+// #define BitHeight1x1 (2*7.746*0.8) /* see below */
 extern double BitHeight1x1;
-//#define stitch_ramh   12.0
+// #define stitch_ramh   12.0
 extern double stitch_ramh;
-//#define BitWidth16x2  192.8
-//#define BitWidth1x1	  (7.746*0.8) 
+// #define BitWidth16x2  192.8
+// #define BitWidth1x1	  (7.746*0.8)
 extern double BitWidth1x1;
-/* dt: Assume that each 6-T SRAM cell is 120F^2 and has an aspect ratio of 1(width) to 2(height), than the width is 2*sqrt(60)*F */
-//#define WidthNOR1     11.6
+/* dt: Assume that each 6-T SRAM cell is 120F^2 and has an aspect ratio of
+ * 1(width) to 2(height), than the width is 2*sqrt(60)*F */
+// #define WidthNOR1     11.6
 extern double WidthNOR1;
-//#define WidthNOR2     13.6
+// #define WidthNOR2     13.6
 extern double WidthNOR2;
-//#define WidthNOR3     20.8
+// #define WidthNOR3     20.8
 extern double WidthNOR3;
-//#define WidthNOR4     28.8
+// #define WidthNOR4     28.8
 extern double WidthNOR4;
-//#define WidthNOR5     34.4
+// #define WidthNOR5     34.4
 extern double WidthNOR5;
-//#define WidthNOR6     41.6
+// #define WidthNOR6     41.6
 extern double WidthNOR6;
-//#define Predec_height1    140.8
+// #define Predec_height1    140.8
 extern double Predec_height1;
-//#define Predec_width1     270.4
+// #define Predec_width1     270.4
 extern double Predec_width1;
-//#define Predec_height2    140.8
+// #define Predec_height2    140.8
 extern double Predec_height2;
-//#define Predec_width2     539.2
+// #define Predec_width2     539.2
 extern double Predec_width2;
-//#define Predec_height3    281.6
-extern double Predec_height3;    
-//#define Predec_width3     584.0
+// #define Predec_height3    281.6
+extern double Predec_height3;
+// #define Predec_width3     584.0
 extern double Predec_width3;
-//#define Predec_height4    281.6
-extern double Predec_height4;  
-//#define Predec_width4     628.8
-extern double Predec_width4; 
-//#define Predec_height5    422.4
-extern double Predec_height5; 
-//#define Predec_width5     673.6
+// #define Predec_height4    281.6
+extern double Predec_height4;
+// #define Predec_width4     628.8
+extern double Predec_width4;
+// #define Predec_height5    422.4
+extern double Predec_height5;
+// #define Predec_width5     673.6
 extern double Predec_width5;
-//#define Predec_height6    422.4
+// #define Predec_height6    422.4
 extern double Predec_height6;
-//#define Predec_width6     718.4
+// #define Predec_width6     718.4
 extern double Predec_width6;
-//#define Wwrite		  1.2
+// #define Wwrite		  1.2
 extern double Wwrite;
-//#define SenseampHeight    152.0
+// #define SenseampHeight    152.0
 extern double SenseampHeight;
-//#define OutdriveHeight	  200.0
+// #define OutdriveHeight	  200.0
 extern double OutdriveHeight;
-//#define FAOutdriveHeight  229.2
+// #define FAOutdriveHeight  229.2
 extern double FAOutdriveHeight;
-//#define FArowWidth	  382.8
+// #define FArowWidth	  382.8
 extern double FArowWidth;
-//#define CAM2x2Height_1p	  48.8
+// #define CAM2x2Height_1p	  48.8
 extern double CAM2x2Height_1p;
-//#define CAM2x2Width_1p	  44.8
+// #define CAM2x2Width_1p	  44.8
 extern double CAM2x2Width_1p;
-//#define CAM2x2Height_2p   80.8 
-extern double CAM2x2Height_2p;   
-//#define CAM2x2Width_2p    76.8
+// #define CAM2x2Height_2p   80.8
+extern double CAM2x2Height_2p;
+// #define CAM2x2Width_2p    76.8
 extern double CAM2x2Width_2p;
-//#define DatainvHeight     25.6
+// #define DatainvHeight     25.6
 extern double DatainvHeight;
-//#define Wbitdropv 	  30.0
+// #define Wbitdropv 	  30.0
 extern double Wbitdropv;
-//#define decNandWidth      34.4
+// #define decNandWidth      34.4
 extern double decNandWidth;
-//#define FArowNANDWidth    71.2
+// #define FArowNANDWidth    71.2
 extern double FArowNANDWidth;
-//#define FArowNOR_INVWidth 28.0  
+// #define FArowNOR_INVWidth 28.0
 extern double FArowNOR_INVWidth;
 
-//#define FAHeightIncrPer_first_rw_or_w_port 16.0
+// #define FAHeightIncrPer_first_rw_or_w_port 16.0
 extern double FAHeightIncrPer_first_rw_or_w_port;
-//#define FAHeightIncrPer_later_rw_or_w_port 16.0
+// #define FAHeightIncrPer_later_rw_or_w_port 16.0
 extern double FAHeightIncrPer_later_rw_or_w_port;
-//#define FAHeightIncrPer_first_r_port       12.0
+// #define FAHeightIncrPer_first_r_port       12.0
 extern double FAHeightIncrPer_first_r_port;
-//#define FAHeightIncrPer_later_r_port       12.0
+// #define FAHeightIncrPer_later_r_port       12.0
 extern double FAHeightIncrPer_later_r_port;
-//#define FAWidthIncrPer_first_rw_or_w_port  16.0 
+// #define FAWidthIncrPer_first_rw_or_w_port  16.0
 extern double FAWidthIncrPer_first_rw_or_w_port;
-//#define FAWidthIncrPer_later_rw_or_w_port  9.6
+// #define FAWidthIncrPer_later_rw_or_w_port  9.6
 extern double FAWidthIncrPer_later_rw_or_w_port;
-//#define FAWidthIncrPer_first_r_port        12.0
+// #define FAWidthIncrPer_first_r_port        12.0
 extern double FAWidthIncrPer_first_r_port;
-//#define FAWidthIncrPer_later_r_port        9.6
+// #define FAWidthIncrPer_later_r_port        9.6
 extern double FAWidthIncrPer_later_r_port;
 
-#define tracks_precharge_p    12
-#define tracks_precharge_nx2   5 
-#define tracks_outdrvselinv_p  3
-#define tracks_outdrvfanand_p  6  
+#define tracks_precharge_p 12
+#define tracks_precharge_nx2 5
+#define tracks_outdrvselinv_p 3
+#define tracks_outdrvfanand_p 6
 
-#define CONVERT_TO_MMSQUARE 1.0/1000000.0
-int
-data_organizational_parameters_valid(int B,int A,int C,int Ndwl,int Ndbl,double Nspd,char assoc,double NSubbanks);
-int
-tag_organizational_parameters_valid(int B,int A,int C,int Ntwl,int Ntbl,int Ntspd,char assoc,double NSubbanks);
-void
-area_subbanked (int baddr,int b0,int RWP,int ERP,int EWP,int Ndbl,int Ndwl,double Nspd,int Ntbl,int Ntwl,int Ntspd,
-		double NSubbanks,parameter_type *parameters,area_type *result_subbanked,arearesult_type *result);
+#define CONVERT_TO_MMSQUARE 1.0 / 1000000.0
+int data_organizational_parameters_valid(int B, int A, int C, int Ndwl,
+                                         int Ndbl, double Nspd, char assoc,
+                                         double NSubbanks);
+int tag_organizational_parameters_valid(int B, int A, int C, int Ntwl, int Ntbl,
+                                        int Ntspd, char assoc,
+                                        double NSubbanks);
+void area_subbanked(int baddr, int b0, int RWP, int ERP, int EWP, int Ndbl,
+                    int Ndwl, double Nspd, int Ntbl, int Ntwl, int Ntspd,
+                    double NSubbanks, parameter_type *parameters,
+                    area_type *result_subbanked, arearesult_type *result);

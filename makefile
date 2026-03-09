@@ -1,7 +1,8 @@
 LIBS = -lm
 CXX = g++
 
-SRCS = main.cpp time.cpp area.cpp io.cpp leakage.cpp basic_circuit.cpp def.h areadef.h leakage.h basic_circuit.h io.h time.h cacti_interface.h
+SRC_EXTENSIONS = .cpp .h
+SRC := $(foreach ext, $(SRC_EXTENSIONS), $(shell find . -name '*$(ext)'))
 
 OBJS = main.o time.o area.o io.o leakage.o basic_circuit.o
 
@@ -39,6 +40,11 @@ cacti_wrap.o :  cacti_wrap.cpp
 
 cacti_wrap.cpp: cacti.i
 	swig -python cacti.i
+
+.PHONY: format
+format:
+	@echo "Running clang-format"
+	@clang-format -i $(SRC)
 
 clean:
 	rm -rf *.o cacti cache_params.aux core

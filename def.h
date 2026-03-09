@@ -9,15 +9,16 @@
  * of the software, derivative works or modified versions, and any portions
  * thereof, and both notices must appear in supporting documentation.
  *
- * Users of this software agree to the terms and conditions set forth herein, and
- * hereby grant back to Hewlett-Packard Company and its affiliated companies ("HP")
- * a non-exclusive, unrestricted, royalty-free right and license under any changes, 
- * enhancements or extensions  made to the core functions of the software, including 
- * but not limited to those affording compatibility with other hardware or software
- * environments, but excluding applications which incorporate this software.
- * Users further agree to use their best efforts to return to HP any such changes,
- * enhancements or extensions that they make and inform HP of noteworthy uses of
- * this software.  Correspondence should be provided to HP at:
+ * Users of this software agree to the terms and conditions set forth herein,
+ *and hereby grant back to Hewlett-Packard Company and its affiliated companies
+ *("HP") a non-exclusive, unrestricted, royalty-free right and license under any
+ *changes, enhancements or extensions  made to the core functions of the
+ *software, including but not limited to those affording compatibility with
+ *other hardware or software environments, but excluding applications which
+ *incorporate this software. Users further agree to use their best efforts to
+ *return to HP any such changes, enhancements or extensions that they make and
+ *inform HP of noteworthy uses of this software.  Correspondence should be
+ *provided to HP at:
  *
  *                       Director of Intellectual Property Licensing
  *                       Office of Strategy and Technology
@@ -31,7 +32,7 @@
  *
  * THE SOFTWARE IS PROVIDED "AS IS" AND HP DISCLAIMS ALL
  * WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS.   IN NO EVENT SHALL HP 
+ * OF MERCHANTABILITY AND FITNESS.   IN NO EVENT SHALL HP
  * CORPORATION BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
  * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
  * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS
@@ -55,13 +56,13 @@
 #define OUTPUTTYPE LONG
 
 /*
- * Address bits in a word, and number of output bits from the cache 
+ * Address bits in a word, and number of output bits from the cache
  */
 
 /*
 was: #define ADDRESS_BITS 32
-now: I'm using 42 bits as in the Power4, 
-since that's bigger then the 36 bits on the Pentium 4 
+now: I'm using 42 bits as in the Power4,
+since that's bigger then the 36 bits on the Pentium 4
 and 40 bits on the Opteron
 */
 #define ADDRESS_BITS 42
@@ -71,87 +72,89 @@ now: making it a commandline parameter
 */
 static int BITOUT;
 
-/*dt: In addition to the tag bits, the tags also include 1 valid bit, 1 dirty bit, 2 bits for a 4-state 
-  cache coherency protocoll (MESI), 1 bit for MRU (change this to log(ways) for full LRU). 
-  So in total we have 1 + 1 + 2 + 1 = 5 */
+/*dt: In addition to the tag bits, the tags also include 1 valid bit, 1 dirty
+  bit, 2 bits for a 4-state cache coherency protocoll (MESI), 1 bit for MRU
+  (change this to log(ways) for full LRU). So in total we have 1 + 1 + 2 + 1 = 5
+*/
 #define EXTRA_TAG_BITS 5
-
 
 /* limits on the various N parameters */
 
-#define MAXDATAN 32          /* Maximum for Ndwl,Ndbl */
-#define MAXTAGN 32          /* Maximum for Ndwl,Ndbl */
-#define MAXSUBARRAYS 256    /* Maximum subarrays for data and tag arrays */
-#define MAXDATASPD 32         /* Maximum for Nspd */
-#define MAXTAGSPD 32         /* Maximum for Ntspd */
-
-
+#define MAXDATAN 32      /* Maximum for Ndwl,Ndbl */
+#define MAXTAGN 32       /* Maximum for Ndwl,Ndbl */
+#define MAXSUBARRAYS 256 /* Maximum subarrays for data and tag arrays */
+#define MAXDATASPD 32    /* Maximum for Nspd */
+#define MAXTAGSPD 32     /* Maximum for Ntspd */
 
 /*
  * The following scale factor can be used to scale between technologies.
  * To convert from 0.8um to 0.5um, make FUDGEFACTOR = 1.6
  */
- 
+
 extern double FUDGEFACTOR;
 extern double FEATURESIZE;
 
 /*===================================================================*/
 
 /*
- * Cache layout parameters and process parameters 
+ * Cache layout parameters and process parameters
  */
-
 
 /*
  * CMOS 0.8um model parameters
  *   - directly from Appendix II of tech report
  */
 
-/*#define WORDWIRELENGTH (8+2*WIREPITCH*(EXTRAWRITEPORTS)+2*WIREPITCH*(EXTRAREADPORTS))*/
+/*#define WORDWIRELENGTH
+ * (8+2*WIREPITCH*(EXTRAWRITEPORTS)+2*WIREPITCH*(EXTRAREADPORTS))*/
 /*#define BITWIRELENGTH (16+2*WIREPITCH*(EXTRAWRITEPORTS+EXTRAREADPORTS))*/
 /*
-was: 
+was:
 #define WIRESPACING (2*FEATURESIZE)
 #define WIREWIDTH (3*FEATURESIZE)
-is: width and pitch are taken from the Intel IEDM 2004 paper on their 65nm process.
+is: width and pitch are taken from the Intel IEDM 2004 paper on their 65nm
+process.
 */
 
-#define WIRESPACING (1.6*FEATURESIZE)
-#define WIREWIDTH (1.6*FEATURESIZE)
+#define WIRESPACING (1.6 * FEATURESIZE)
+#define WIREWIDTH (1.6 * FEATURESIZE)
 /*dt: I've taken the aspect ratio from the Intel paper on their 65nm process */
-#define WIREHEIGTHRATIO	(1.8)
+#define WIREHEIGTHRATIO (1.8)
 
-#define WIREPITCH (WIRESPACING+WIREWIDTH)
+#define WIREPITCH (WIRESPACING + WIREWIDTH)
 /*
 #define Default_Cmetal 275e-18
 */
-/*dt: The old Cmetal was calculated using SiO2 as dielectric (k = 3.9). Going by the Intel 65nm paper, 
-low-k dielectics are not at k=2.9. This is a very simple adjustment, as lots of other factors also go into the average
-capacitance, but I don't have any better/more up to date data on wire distribution, etc. than what's been done for cacti 1.0.
-So I'm doing a simple adjustment by 2.9/3.9 */
-//#define Default_Cmetal (2.9/3.9*275e-18)
+/*dt: The old Cmetal was calculated using SiO2 as dielectric (k = 3.9). Going by
+the Intel 65nm paper, low-k dielectics are not at k=2.9. This is a very simple
+adjustment, as lots of other factors also go into the average capacitance, but I
+don't have any better/more up to date data on wire distribution, etc. than
+what's been done for cacti 1.0. So I'm doing a simple adjustment by 2.9/3.9 */
+// #define Default_Cmetal (2.9/3.9*275e-18)
 /*dt: changing this to reflect newer data */
-/* 2.9: is the k value for the low-k dielectric used in 65nm Intel process 
+/* 2.9: is the k value for the low-k dielectric used in 65nm Intel process
    3.9: is the k value of normal SiO2
    --> multiply by 2.9/3.9 to get new C values
-   the Intel 130nm process paper mentioned 230fF/mm for M1 through M5 with k = 3.6
-   So we get
-   230*10^-15/mm * 10^-3 mm/1um * 3.9/3.6
+   the Intel 130nm process paper mentioned 230fF/mm for M1 through M5 with k
+   = 3.6 So we get 230*10^-15/mm * 10^-3 mm/1um * 3.9/3.6
 */
-#define Default_Cmetal (2.9/3.9*230e-18*3.9/3.6)
+#define Default_Cmetal (2.9 / 3.9 * 230e-18 * 3.9 / 3.6)
 #define Default_Rmetal 48e-3
-/* dt: I'm assuming that even with all the process improvements, 
+/* dt: I'm assuming that even with all the process improvements,
 copper will 'only' have 2/3 the sheet resistance of aluminum. */
 #define Default_CopperSheetResistancePerMicroM 32e-3
 
-/*dt: this number is calculated from the 2004 ITRS tables (RC delay and Wire sizes)*/
-#define CRatiolocal_to_interm  (1.0/1.4)
-/*dt: from ITRS 2004 using wire sizes, aspect ratios and effective resistivities for local and intermediate*/
-#define RRatiolocal_to_interm  (1.0/2.04)
+/*dt: this number is calculated from the 2004 ITRS tables (RC delay and Wire
+ * sizes)*/
+#define CRatiolocal_to_interm (1.0 / 1.4)
+/*dt: from ITRS 2004 using wire sizes, aspect ratios and effective resistivities
+ * for local and intermediate*/
+#define RRatiolocal_to_interm (1.0 / 2.04)
 
-#define CRatiointerm_to_global  (1.0/1.9)
-/*dt: from ITRS 2004 using wire sizes, aspect ratios and effective resistivities for local and intermediate*/
-#define RRatiointerm_to_global  (1.0/3.05)
+#define CRatiointerm_to_global (1.0 / 1.9)
+/*dt: from ITRS 2004 using wire sizes, aspect ratios and effective resistivities
+ * for local and intermediate*/
+#define RRatiointerm_to_global (1.0 / 3.05)
 
 static double WireRscaling;
 static double WireCscaling;
@@ -175,129 +178,127 @@ static double FACbitmetal;
 static double FARwordmetal;
 static double FARbitmetal;
 
-
-
 static int muxover;
 
 /* fF/um2 at 1.5V */
-//#define Cndiffarea    0.137e-15
+// #define Cndiffarea    0.137e-15
 
-//v4.1: Making all constants static variables. Initially these variables are based
-//off 0.8 micron process values; later on in init_tech_params function of leakage.c 
-//they are scaled to input tech node parameters 
+// v4.1: Making all constants static variables. Initially these variables are
+// based off 0.8 micron process values; later on in init_tech_params function of
+// leakage.c they are scaled to input tech node parameters
 
 extern double Cndiffarea;
 
 /* fF/um2 at 1.5V */
-//#define Cpdiffarea    0.343e-15
+// #define Cpdiffarea    0.343e-15
 
 extern double Cpdiffarea;
 
 /* fF/um at 1.5V */
-//#define Cndiffside    0.275e-15
+// #define Cndiffside    0.275e-15
 
 extern double Cndiffside;
 
 /* fF/um at 1.5V */
-//#define Cpdiffside    0.275e-15
+// #define Cpdiffside    0.275e-15
 extern double Cpdiffside;
 
 /* fF/um at 1.5V */
-//#define Cndiffovlp    0.138e-15
+// #define Cndiffovlp    0.138e-15
 extern double Cndiffovlp;
 
 /* fF/um at 1.5V */
-//#define Cpdiffovlp    0.138e-15
+// #define Cpdiffovlp    0.138e-15
 extern double Cpdiffovlp;
 
 /* fF/um assuming 25% Miller effect */
-//#define Cnoxideovlp   0.263e-15
+// #define Cnoxideovlp   0.263e-15
 extern double Cnoxideovlp;
 
 /* fF/um assuming 25% Miller effect */
-//#define Cpoxideovlp   0.338e-15
+// #define Cpoxideovlp   0.338e-15
 extern double Cpoxideovlp;
 
 /* um */
-//#define Leff          (0.8)
+// #define Leff          (0.8)
 extern double Leff;
 
-//#define inv_Leff	  1.25
+// #define inv_Leff	  1.25
 extern double inv_Leff;
 
 /* fF/um2 */
-//#define Cgate         1.95e-15
-extern double Cgate;	
+// #define Cgate         1.95e-15
+extern double Cgate;
 
 /* fF/um2 */
-//#define Cgatepass     1.45e-15
-extern double Cgatepass;		
+// #define Cgatepass     1.45e-15
+extern double Cgatepass;
 
-/* note that the value of Cgatepass will be different depending on 
+/* note that the value of Cgatepass will be different depending on
    whether or not the source and drain are at different potentials or
    the same potential.  The two values were averaged */
 
 /* fF/um */
-//#define Cpolywire	(0.25e-15)	
-extern double Cpolywire;			 
+// #define Cpolywire	(0.25e-15)
+extern double Cpolywire;
 
 /* ohms*um of channel width */
-//#define Rnchannelstatic	(25800)
+// #define Rnchannelstatic	(25800)
 extern double Rnchannelstatic;
 
 /* ohms*um of channel width */
-//#define Rpchannelstatic	(61200)
+// #define Rpchannelstatic	(61200)
 extern double Rpchannelstatic;
 
-//#define Rnchannelon	(8751)
+// #define Rnchannelon	(8751)
 extern double Rnchannelon;
 
-//#define Rpchannelon	(20160)
+// #define Rpchannelon	(20160)
 extern double Rpchannelon;
 
-
-#define Vdd		5
+#define Vdd 5
 static double VddPow;
 /* Threshold voltages (as a proportion of Vdd)
    If you don't know them, set all values to 0.5 */
 
-#define SizingRatio   0.33
-#define VTHNAND       0.561
-#define VTHFA1        0.452
-#define VTHFA2        0.304
-#define VTHFA3        0.420
-#define VTHFA4        0.413
-#define VTHFA5        0.405
-#define VTHFA6        0.452
-#define VSINV         0.452   
-#define VTHINV100x60  0.438   /* inverter with p=100,n=60 */
-#define VTHINV360x240 0.420   /* inverter with p=360, n=240 */
-#define VTHNAND60x90  0.561   /* nand with p=60 and three n=90 */
-#define VTHNOR12x4x1  0.503   /* nor with p=12, n=4, 1 input */
-#define VTHNOR12x4x2  0.452   /* nor with p=12, n=4, 2 inputs */
-#define VTHNOR12x4x3  0.417   /* nor with p=12, n=4, 3 inputs */
-#define VTHNOR12x4x4  0.390   /* nor with p=12, n=4, 4 inputs */
-#define VTHOUTDRINV    0.437
-#define VTHOUTDRNOR   0.379
-#define VTHOUTDRNAND  0.63
-#define VTHOUTDRIVE   0.425
-#define VTHCOMPINV    0.437
-#define VTHMUXNAND    0.548
-#define VTHMUXDRV1    0.406
-#define VTHMUXDRV2    0.334
-#define VTHMUXDRV3    0.478
-#define VTHEVALINV    0.452
-#define VTHSENSEEXTDRV  0.438
+#define SizingRatio 0.33
+#define VTHNAND 0.561
+#define VTHFA1 0.452
+#define VTHFA2 0.304
+#define VTHFA3 0.420
+#define VTHFA4 0.413
+#define VTHFA5 0.405
+#define VTHFA6 0.452
+#define VSINV 0.452
+#define VTHINV100x60 0.438  /* inverter with p=100,n=60 */
+#define VTHINV360x240 0.420 /* inverter with p=360, n=240 */
+#define VTHNAND60x90 0.561  /* nand with p=60 and three n=90 */
+#define VTHNOR12x4x1 0.503  /* nor with p=12, n=4, 1 input */
+#define VTHNOR12x4x2 0.452  /* nor with p=12, n=4, 2 inputs */
+#define VTHNOR12x4x3 0.417  /* nor with p=12, n=4, 3 inputs */
+#define VTHNOR12x4x4 0.390  /* nor with p=12, n=4, 4 inputs */
+#define VTHOUTDRINV 0.437
+#define VTHOUTDRNOR 0.379
+#define VTHOUTDRNAND 0.63
+#define VTHOUTDRIVE 0.425
+#define VTHCOMPINV 0.437
+#define VTHMUXNAND 0.548
+#define VTHMUXDRV1 0.406
+#define VTHMUXDRV2 0.334
+#define VTHMUXDRV3 0.478
+#define VTHEVALINV 0.452
+#define VTHSENSEEXTDRV 0.438
 
 #define VTHNAND60x120 0.522
 
 /* transistor widths in um (as described in tech report, appendix 1) */
-/* incorporating changes from eCACTI. Mostly device widths are now calculated with logical effort
-and no longer static. Some changes to constants to reflect improving/changing circuit/device technology */
+/* incorporating changes from eCACTI. Mostly device widths are now calculated
+with logical effort and no longer static. Some changes to constants to reflect
+improving/changing circuit/device technology */
 
-//#define Wdecdrivep	(360.0)
+// #define Wdecdrivep	(360.0)
 extern double Wdecdrivep;
-//#define Wdecdriven	(240.0)
+// #define Wdecdriven	(240.0)
 extern double Wdecdriven;
 /*#define Wdec3to8n     120.0
 #define Wdec3to8p     60.0
@@ -306,8 +307,7 @@ extern double Wdecdriven;
 #define Wdecinvn      20.0
 #define Wdecinvp      40.0 */
 
-
-//#define Wworddrivemax 100.0
+// #define Wworddrivemax 100.0
 extern double Wworddrivemax;
 
 extern double Waddrdrvn1;
@@ -321,15 +321,15 @@ extern double Wdecdrivep_first;
 extern double Wdecdriven_first;
 extern double WdecdrivetreeN[10];
 extern double Cdectreesegments[10], Rdectreesegments[10];
-extern int    nr_dectreesegments;
-extern double Wdec3to8n ;
-extern double Wdec3to8p ;
-extern double WdecNORn  ;
-extern double WdecNORp  ;
-extern double Wdecinvn  ;
-extern double Wdecinvp  ;
-extern double WwlDrvn ;
-extern double WwlDrvp ;
+extern int nr_dectreesegments;
+extern double Wdec3to8n;
+extern double Wdec3to8p;
+extern double WdecNORn;
+extern double WdecNORp;
+extern double Wdecinvn;
+extern double Wdecinvp;
+extern double WwlDrvn;
+extern double WwlDrvp;
 
 extern double Wtdecdrivep_second;
 extern double Wtdecdriven_second;
@@ -337,16 +337,15 @@ extern double Wtdecdrivep_first;
 extern double Wtdecdriven_first;
 extern double WtdecdrivetreeN[10];
 extern double Ctdectreesegments[10], Rtdectreesegments[10];
-extern int    nr_tdectreesegments;
-extern double Wtdec3to8n ;
-extern double Wtdec3to8p ;
-extern double WtdecNORn  ;
-extern double WtdecNORp  ;
-extern double Wtdecinvn  ;
-extern double Wtdecinvp  ;
-extern double WtwlDrvn ;
-extern double WtwlDrvp ;
-
+extern int nr_tdectreesegments;
+extern double Wtdec3to8n;
+extern double Wtdec3to8p;
+extern double WtdecNORn;
+extern double WtdecNORp;
+extern double Wtdecinvn;
+extern double Wtdecinvp;
+extern double WtwlDrvn;
+extern double WtwlDrvp;
 
 /* #define Wmemcella	(2.4)
 // added by MnM
@@ -354,23 +353,23 @@ extern double WtwlDrvp ;
 // #define Wmemcellnmos (2.0)
 */
 
-//#define Wmemcella	(0.9)
+// #define Wmemcella	(0.9)
 extern double Wmemcella;
 
 /* added by MnM */
-//#define Wmemcellpmos (0.65)
+// #define Wmemcellpmos (0.65)
 extern double Wmemcellpmos;
-//#define Wmemcellnmos (2.0)
+// #define Wmemcellnmos (2.0)
 extern double Wmemcellnmos;
 
-
-//#define Wmemcellbscale	2		/* means 2x bigger than Wmemcella */
+// #define Wmemcellbscale	2		/* means 2x bigger than Wmemcella
+// */
 extern int Wmemcellbscale;
 /* #define Wbitpreequ	(80.0) */
 extern double Wbitpreequ;
-//#define Wpchmax		(25.0) /* precharge transistor sizes usually do not exceed 25 */
+// #define Wpchmax		(25.0) /* precharge transistor sizes usually do not
+// exceed 25 */
 extern double Wpchmax;
-
 
 /* #define Wbitmuxn	(10.0)
 //#define WsenseQ1to4	(4.0) */
@@ -409,81 +408,81 @@ extern double WtisoDrvp, WtisoDrvn;
 extern double WtspchDrvp, WtspchDrvn;
 extern double WtsenseEnDrvp, WtsenseEnDrvn;
 
-//#define Wcompinvp1	(10.0)
+// #define Wcompinvp1	(10.0)
 extern double Wcompinvp1;
-//#define Wcompinvn1	(6.0)
+// #define Wcompinvn1	(6.0)
 extern double Wcompinvn1;
-//#define Wcompinvp2	(20.0)
+// #define Wcompinvp2	(20.0)
 extern double Wcompinvp2;
-//#define Wcompinvn2	(12.0)
+// #define Wcompinvn2	(12.0)
 extern double Wcompinvn2;
-//#define Wcompinvp3	(40.0)
+// #define Wcompinvp3	(40.0)
 extern double Wcompinvp3;
-//#define Wcompinvn3	(24.0)
+// #define Wcompinvn3	(24.0)
 extern double Wcompinvn3;
-//#define Wevalinvp	(80.0)
+// #define Wevalinvp	(80.0)
 extern double Wevalinvp;
-//#define Wevalinvn	(40.0)
+// #define Wevalinvn	(40.0)
 extern double Wevalinvn;
 
-//#define Wfadriven    (50.0)
+// #define Wfadriven    (50.0)
 extern double Wfadriven;
-//#define Wfadrivep    (100.0)
+// #define Wfadrivep    (100.0)
 extern double Wfadrivep;
-//#define Wfadrive2n    (200.0)
+// #define Wfadrive2n    (200.0)
 extern double Wfadrive2n;
-//#define Wfadrive2p    (400.0)
+// #define Wfadrive2p    (400.0)
 extern double Wfadrive2p;
-//#define Wfadecdrive1n    (5.0)
+// #define Wfadecdrive1n    (5.0)
 extern double Wfadecdrive1n;
-//#define Wfadecdrive1p    (10.0)
+// #define Wfadecdrive1p    (10.0)
 extern double Wfadecdrive1p;
-//#define Wfadecdrive2n    (20.0)
+// #define Wfadecdrive2n    (20.0)
 extern double Wfadecdrive2n;
-//#define Wfadecdrive2p    (40.0)
+// #define Wfadecdrive2p    (40.0)
 extern double Wfadecdrive2p;
-//#define Wfadecdriven    (50.0)
+// #define Wfadecdriven    (50.0)
 extern double Wfadecdriven;
-//#define Wfadecdrivep    (100.0)
+// #define Wfadecdrivep    (100.0)
 extern double Wfadecdrivep;
-//#define Wfaprechn       (6.0)
+// #define Wfaprechn       (6.0)
 extern double Wfaprechn;
-//#define Wfaprechp       (10.0)
+// #define Wfaprechp       (10.0)
 extern double Wfaprechp;
-//#define Wdummyn         (10.0)
+// #define Wdummyn         (10.0)
 extern double Wdummyn;
-//#define Wdummyinvn      (60.0)
+// #define Wdummyinvn      (60.0)
 extern double Wdummyinvn;
-//#define Wdummyinvp      (80.0)
+// #define Wdummyinvp      (80.0)
 extern double Wdummyinvp;
-//#define Wfainvn         (10.0)
+// #define Wfainvn         (10.0)
 extern double Wfainvn;
-//#define Wfainvp         (20.0)
+// #define Wfainvp         (20.0)
 extern double Wfainvp;
-//#define Waddrnandn      (50.0)
+// #define Waddrnandn      (50.0)
 extern double Waddrnandn;
-//#define Waddrnandp      (50.0)
+// #define Waddrnandp      (50.0)
 extern double Waddrnandp;
-//#define Wfanandn        (20.0)
+// #define Wfanandn        (20.0)
 extern double Wfanandn;
-//#define Wfanandp        (30.0)
+// #define Wfanandp        (30.0)
 extern double Wfanandp;
-//#define Wfanorn         (5.0)
+// #define Wfanorn         (5.0)
 extern double Wfanorn;
-//#define Wfanorp         (10.0)
+// #define Wfanorp         (10.0)
 extern double Wfanorp;
-//#define Wdecnandn       (10.0)
+// #define Wdecnandn       (10.0)
 extern double Wdecnandn;
-//#define Wdecnandp       (30.0)
+// #define Wdecnandp       (30.0)
 extern double Wdecnandp;
 
-//#define Wcompn		(10.0)
+// #define Wcompn		(10.0)
 extern double Wcompn;
-//#define Wcompp		(30.0)
+// #define Wcompp		(30.0)
 extern double Wcompp;
-//#define Wmuxdrv12n	(60.0)
+// #define Wmuxdrv12n	(60.0)
 extern double Wmuxdrv12n;
-//#define Wmuxdrv12p	(100.0)
+// #define Wmuxdrv12p	(100.0)
 extern double Wmuxdrv12p;
 
 /* #define WmuxdrvNANDn    (60.0)
@@ -498,21 +497,20 @@ extern double Wmuxdrv12p;
 
 extern double Coutdrvtreesegments[20], Routdrvtreesegments[20];
 extern double WoutdrvtreeN[20];
-extern int    nr_outdrvtreesegments;
+extern int nr_outdrvtreesegments;
 
 extern double Cmuxdrvtreesegments[20], Rmuxdrvtreesegments[20];
 extern double WmuxdrvtreeN[20];
-extern int    nr_muxdrvtreesegments;
+extern int nr_muxdrvtreesegments;
 
-extern double WmuxdrvNANDn    ;
-extern double WmuxdrvNANDp    ;
-extern double WmuxdrvNORn	;
-extern double WmuxdrvNORp	;
-extern double Wmuxdrv3n	;
-extern double Wmuxdrv3p	;
-extern double Woutdrvseln	;
-extern double Woutdrvselp	;
-
+extern double WmuxdrvNANDn;
+extern double WmuxdrvNANDp;
+extern double WmuxdrvNORn;
+extern double WmuxdrvNORp;
+extern double Wmuxdrv3n;
+extern double Wmuxdrv3p;
+extern double Woutdrvseln;
+extern double Woutdrvselp;
 
 /* #define Woutdrvnandn	(10.0)
 //#define Woutdrvnandp	(30.0)
@@ -524,58 +522,56 @@ extern double Woutdrvselp	;
 
 extern double Woutdrvnandn;
 extern double Woutdrvnandp;
-extern double Woutdrvnorn	;
-extern double Woutdrvnorp	;
-extern double Woutdrivern	;
-extern double Woutdriverp	;
+extern double Woutdrvnorn;
+extern double Woutdrvnorp;
+extern double Woutdrivern;
+extern double Woutdriverp;
 
-
-//#define Wsenseextdrv1p (80.0)
+// #define Wsenseextdrv1p (80.0)
 extern double Wsenseextdrv1p;
-//#define Wsenseextdrv1n (40.0)
+// #define Wsenseextdrv1n (40.0)
 extern double Wsenseextdrv1n;
-//#define Wsenseextdrv2p (240.0)
+// #define Wsenseextdrv2p (240.0)
 extern double Wsenseextdrv2p;
-//#define Wsenseextdrv2n (160.0)
+// #define Wsenseextdrv2n (160.0)
 extern double Wsenseextdrv2n;
-
 
 /* other stuff (from tech report, appendix 1) */
 
-//#define krise		(0.4e-9)
+// #define krise		(0.4e-9)
 extern double krise;
-//#define tsensedata	(5.8e-10)
+// #define tsensedata	(5.8e-10)
 extern double tsensedata;
 // #define psensedata      (0.025e-9)
-//#define psensedata      (0.02e-9)
+// #define psensedata      (0.02e-9)
 extern double psensedata;
-//#define tsensescale     0.02e-10
+// #define tsensescale     0.02e-10
 extern double tsensescale;
-//#define tsensetag	(2.6e-10)
+// #define tsensetag	(2.6e-10)
 extern double tsensetag;
 // #define psensetag       (0.01e-9)
-//#define psensetag	(0.016e-9)
+// #define psensetag	(0.016e-9)
 extern double psensetag;
-//#define tfalldata	(7e-10)
+// #define tfalldata	(7e-10)
 extern double tfalldata;
-//#define tfalltag	(7e-10)
+// #define tfalltag	(7e-10)
 extern double tfalltag;
-#define Vbitpre		(3.3)
+#define Vbitpre (3.3)
 static double VbitprePow;
-#define Vt		(1.09)
+#define Vt (1.09)
 /*
 was: #define Vbitsense	(0.10)
 now: 50mV seems to be the norm as of 2005
 */
-#define Vbitsense	(0.05*Vdd)
-#define Vbitswing	(0.20*Vdd)
+#define Vbitsense (0.05 * Vdd)
+#define Vbitswing (0.20 * Vdd)
 
 /* bit width of RAM cell in um */
 /*
 was:
 #define BitWidth	(8.0)
 */
-//#define BitWidth	7.746*0.8
+// #define BitWidth	7.746*0.8
 extern double BitWidth;
 
 /* bit height of RAM cell in um */
@@ -583,20 +579,19 @@ extern double BitWidth;
 was:
 #define BitHeight	(16.0)
 */
-//#define BitHeight	2*7.746*0.8
+// #define BitHeight	2*7.746*0.8
 extern double BitHeight;
 
-//#define Cout		(0.5e-12)
+// #define Cout		(0.5e-12)
 extern double Cout;
 
-extern int dualVt ;
+extern int dualVt;
 extern int explore;
 /*===================================================================*/
 
 /*
- * The following are things you probably wouldn't want to change.  
+ * The following are things you probably wouldn't want to change.
  */
-
 
 #define TRUE 1
 #define FALSE 0
@@ -606,8 +601,8 @@ extern int explore;
 #define OK 1
 #define ERROR 0
 #define BIGNUM 1e30
-#define DIVIDE(a,b) ((b)==0)? 0:(a)/(b)
-#define MAX(a,b) (((a)>(b))?(a):(b))
+#define DIVIDE(a, b) ((b) == 0) ? 0 : (a) / (b)
+#define MAX(a, b) (((a) > (b)) ? (a) : (b))
 
 #define WAVE_PIPE 3
 #define MAX_COL_MUX 16
@@ -616,27 +611,29 @@ extern int explore;
 
 #define RISE 1
 #define FALL 0
-#define NCH  1
-#define PCH  0
-
+#define NCH 1
+#define PCH 0
 
 /* Used to pass values around the program */
 
-/*dt: maximum numbers of entries in the 
+/*dt: maximum numbers of entries in the
       caching structures of the tag calculations
 */
 #define MAX_CACHE_ENTRIES 512
 
 static int sequential_access_flag;
 static int fast_cache_access_flag;
-extern int pure_sram_flag; //Changed from static int to just int as value wasn't getting passed through to 
-//area function in area.c
+extern int pure_sram_flag; // Changed from static int to just int as value
+                           // wasn't getting passed through to
+// area function in area.c
 
-#define EPSILON 0.5 //v4.1: This constant is being used in order to fix floating point -> integer
-//conversion problems that were occuring within CACTI. Typical problem that was occuring was
-//that with different compilers a floating point number like 3.0 would get represented as either 
-//2.9999....or 3.00000001 and then the integer part of the floating point number (3.0) would 
-//be computed differently depending on the compiler. What we are doing now is to replace 
-//int (x) with (int) (x+EPSILON) where EPSILON is 0.5. This would fix such problems. Note that
-//this works only when x is an integer >= 0. 
-
+#define EPSILON                                                                \
+  0.5 // v4.1: This constant is being used in order to fix floating point ->
+      // integer
+// conversion problems that were occuring within CACTI. Typical problem that was
+// occuring was that with different compilers a floating point number like 3.0
+// would get represented as either 2.9999....or 3.00000001 and then the integer
+// part of the floating point number (3.0) would be computed differently
+// depending on the compiler. What we are doing now is to replace int (x) with
+// (int) (x+EPSILON) where EPSILON is 0.5. This would fix such problems. Note
+// that this works only when x is an integer >= 0.
