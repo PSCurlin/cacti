@@ -41,5 +41,5 @@ cacti_wrap.c: cacti.i
 			swig -python cacti.i
 
 clean:
-	  rm *.o cacti cache_params.aux core
+	rm -rf *.o cacti cache_params.aux core
 
