@@ -68,78 +68,78 @@
 #define Vthn_Std 0
 #define Vthp_Std 0
 
-double Tkelvin;
-double process_tech;
-double tech_length0;
-double M0n ;      /* Zero Bias Mobility for N-Type */
-double M0p  ;     /* Zero Bias Mobility for P-Type */
-double Tox ;
-double Cox ;      /* Gate Oxide Capacitance per unit area */
-double Vnoff0  ;  /* Empirically Determined Model Parameter for N-Type */
+extern double Tkelvin;
+extern double process_tech;
+extern double tech_length0;
+extern double M0n ;      /* Zero Bias Mobility for N-Type */
+extern double M0p  ;     /* Zero Bias Mobility for P-Type */
+extern double Tox ;
+extern double Cox ;      /* Gate Oxide Capacitance per unit area */
+extern double Vnoff0  ;  /* Empirically Determined Model Parameter for N-Type */
                          /* FIX ME */
-double Vpoff0  ;  /* Empirically Determined Model Parameter for P-Type */
-double Nfix ;     /* In the equation Voff = Vnoff0 +Nfix*(Vth0-Vthn) */
-double Pfix ;     /* In the equation Voff = Vpoff0 +Pfix*(Vth0-Vthp) */
-double Vthn  ;    /* In the equation Voff = Vnoff0 +Nfix*(Vth0-Vthn) */
-double Vthp  ;    /* In the equation Voff = Vpoff0 +Pfix*(Vth0-Vthp) */
-double Vnthx  ;   /* In the Equation Vth = Vth0 +Vnthx*(T-300) */
-double Vpthx ;    /* In the Equation Vth = Vth0 +Vpthx*(T-300) */
-double Vdd_init ; /* Default Vdd. Can be Changed in leakage.c */
-double Volt0  ;
-double Na  ;      /* Empirical param for the Vdd fit */
-double Nb ;       /* Empirical param for the Vdd fit */
-double Pa  ;      /* Empirical param for the Vdd fit */
-double Pb  ;      /* Empirical param for the Vdd fit */
-double NEta  ;    /* Sub-threshold Swing Co-efficient N-Type */
-double PEta   ;   /* Sub-threshold Swing Co-efficient P-Type */
+extern double Vpoff0  ;  /* Empirically Determined Model Parameter for P-Type */
+extern double Nfix ;     /* In the equation Voff = Vnoff0 +Nfix*(Vth0-Vthn) */
+extern double Pfix ;     /* In the equation Voff = Vpoff0 +Pfix*(Vth0-Vthp) */
+extern double Vthn  ;    /* In the equation Voff = Vnoff0 +Nfix*(Vth0-Vthn) */
+extern double Vthp  ;    /* In the equation Voff = Vpoff0 +Pfix*(Vth0-Vthp) */
+extern double Vnthx  ;   /* In the Equation Vth = Vth0 +Vnthx*(T-300) */
+extern double Vpthx ;    /* In the Equation Vth = Vth0 +Vpthx*(T-300) */
+extern double Vdd_init ; /* Default Vdd. Can be Changed in leakage.c */
+extern double Volt0  ;
+extern double Na  ;      /* Empirical param for the Vdd fit */
+extern double Nb ;       /* Empirical param for the Vdd fit */
+extern double Pa  ;      /* Empirical param for the Vdd fit */
+extern double Pb  ;      /* Empirical param for the Vdd fit */
+extern double NEta  ;    /* Sub-threshold Swing Co-efficient N-Type */
+extern double PEta   ;   /* Sub-threshold Swing Co-efficient P-Type */
 
-double L_nmos_d  ;     /* Adjusting Factor for Length */
-double Tox_nmos_e  ;   /* Adjusting Factor for Tox */
-double L_pmos_d ;    /* Adjusting Factor for Length */
-double Tox_pmos_e ;  /* Adjusting Factor for Tox */
+extern double L_nmos_d  ;     /* Adjusting Factor for Length */
+extern double Tox_nmos_e  ;   /* Adjusting Factor for Tox */
+extern double L_pmos_d ;    /* Adjusting Factor for Length */
+extern double Tox_pmos_e ;  /* Adjusting Factor for Tox */
 
 /* gate Vss */
-double Vth0_gate_vss ;
-double aspect_gate_vss;
+extern double Vth0_gate_vss ;
+extern double aspect_gate_vss;
 
 /*drowsy cache*/
-double Vdd_low ;
+extern double Vdd_low ;
 
 /*RBB*/
-double k1_body_n ;
-double k1_body_p ;
-double vfi ;
+extern double k1_body_n ;
+extern double k1_body_p ;
+extern double vfi ;
 
-double VSB_NMOS ;
-double VSB_PMOS ;
+extern double VSB_NMOS ;
+extern double VSB_PMOS ;
 /* dual VT*/
-double Vt_cell_nmos_high ;
-double Vt_cell_pmos_high ;
-double Vt_bit_nmos_low ;
-double Vt_bit_pmos_low ;
+extern double Vt_cell_nmos_high ;
+extern double Vt_cell_pmos_high ;
+extern double Vt_bit_nmos_low ;
+extern double Vt_bit_pmos_low ;
 
 /* Gate lekage for 70nm */
-double  nmos_unit_leakage ;
-double a_nmos_vdd ;
-double b_nmos_t;
-double c_nmos_tox;
+extern double  nmos_unit_leakage ;
+extern double a_nmos_vdd ;
+extern double b_nmos_t;
+extern double c_nmos_tox;
 
-double pmos_unit_leakage;
-double a_pmos_vdd ;
-double b_pmos_t ;
-double c_pmos_tox ;
+extern double pmos_unit_leakage;
+extern double a_pmos_vdd ;
+extern double b_pmos_t ;
+extern double c_pmos_tox ;
 
 
 /* Precalculated Values for leakage */
-double precalc_Vnthx, precalc_Vpthx;
-double precalc_Vthermal,precalc_inv_nVthermal,precalc_inv_pVthermal;
+extern double precalc_Vnthx, precalc_Vpthx;
+extern double precalc_Vthermal,precalc_inv_nVthermal,precalc_inv_pVthermal;
 
-double precalc_nparam2,precalc_pparam2;
+extern double precalc_nparam2,precalc_pparam2;
 
-double precalc_nparamf, precalc_pparamf;
-double precalc_nparaml, precalc_pparaml;
+extern double precalc_nparamf, precalc_pparamf;
+extern double precalc_nparaml, precalc_pparaml;
 
-int have_leakage_params;
+extern int have_leakage_params;
 
 /* Technology Length */
 

@@ -44,6 +44,24 @@
 #include "stdio.h"
 #include "math.h"
 
+double Cgate;
+double Cgatepass;	
+double Cpolywire;
+double Cndiffside;
+double Cpdiffside;
+double Cndiffarea;
+double Cpdiffarea;
+double Cndiffovlp;
+double Cpdiffovlp;
+double Cnoxideovlp;
+double Cpoxideovlp;
+double FUDGEFACTOR;
+double Rnchannelstatic;
+double Rpchannelstatic;
+double Rnchannelon;
+double Rpchannelon;
+int pure_sram_flag;
+
 int powers (int base, int n)
 {
   int i, p;

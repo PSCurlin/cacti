@@ -51,7 +51,9 @@
 
 #define NEXTINT(a) skip(); scanf("%d",&(a));
 #define NEXTFLOAT(a) skip(); scanf("%lf",&(a));
-						
+
+int dualVt ;
+
 /*---------------------------------------------------------------*/
 
 //v4.1: No longer using calculate_area function as area has already been

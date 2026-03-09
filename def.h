@@ -92,8 +92,8 @@ static int BITOUT;
  * To convert from 0.8um to 0.5um, make FUDGEFACTOR = 1.6
  */
  
-double FUDGEFACTOR;
-double FEATURESIZE;
+extern double FUDGEFACTOR;
+extern double FEATURESIZE;
 
 /*===================================================================*/
 
@@ -186,52 +186,52 @@ static int muxover;
 //off 0.8 micron process values; later on in init_tech_params function of leakage.c 
 //they are scaled to input tech node parameters 
 
-double Cndiffarea;
+extern double Cndiffarea;
 
 /* fF/um2 at 1.5V */
 //#define Cpdiffarea    0.343e-15
 
-double Cpdiffarea;
+extern double Cpdiffarea;
 
 /* fF/um at 1.5V */
 //#define Cndiffside    0.275e-15
 
-double Cndiffside;
+extern double Cndiffside;
 
 /* fF/um at 1.5V */
 //#define Cpdiffside    0.275e-15
-double Cpdiffside;
+extern double Cpdiffside;
 
 /* fF/um at 1.5V */
 //#define Cndiffovlp    0.138e-15
-double Cndiffovlp;
+extern double Cndiffovlp;
 
 /* fF/um at 1.5V */
 //#define Cpdiffovlp    0.138e-15
-double Cpdiffovlp;
+extern double Cpdiffovlp;
 
 /* fF/um assuming 25% Miller effect */
 //#define Cnoxideovlp   0.263e-15
-double Cnoxideovlp;
+extern double Cnoxideovlp;
 
 /* fF/um assuming 25% Miller effect */
 //#define Cpoxideovlp   0.338e-15
-double Cpoxideovlp;
+extern double Cpoxideovlp;
 
 /* um */
 //#define Leff          (0.8)
-double Leff;
+extern double Leff;
 
 //#define inv_Leff	  1.25
-double inv_Leff;
+extern double inv_Leff;
 
 /* fF/um2 */
 //#define Cgate         1.95e-15
-double Cgate;	
+extern double Cgate;	
 
 /* fF/um2 */
 //#define Cgatepass     1.45e-15
-double Cgatepass;		
+extern double Cgatepass;		
 
 /* note that the value of Cgatepass will be different depending on 
    whether or not the source and drain are at different potentials or
@@ -239,21 +239,21 @@ double Cgatepass;
 
 /* fF/um */
 //#define Cpolywire	(0.25e-15)	
-double Cpolywire;			 
+extern double Cpolywire;			 
 
 /* ohms*um of channel width */
 //#define Rnchannelstatic	(25800)
-double Rnchannelstatic;
+extern double Rnchannelstatic;
 
 /* ohms*um of channel width */
 //#define Rpchannelstatic	(61200)
-double Rpchannelstatic;
+extern double Rpchannelstatic;
 
 //#define Rnchannelon	(8751)
-double Rnchannelon;
+extern double Rnchannelon;
 
 //#define Rpchannelon	(20160)
-double Rpchannelon;
+extern double Rpchannelon;
 
 
 #define Vdd		5
@@ -296,9 +296,9 @@ static double VddPow;
 and no longer static. Some changes to constants to reflect improving/changing circuit/device technology */
 
 //#define Wdecdrivep	(360.0)
-double Wdecdrivep;
+extern double Wdecdrivep;
 //#define Wdecdriven	(240.0)
-double Wdecdriven;
+extern double Wdecdriven;
 /*#define Wdec3to8n     120.0
 #define Wdec3to8p     60.0
 #define WdecNORn       2.4
@@ -308,44 +308,44 @@ double Wdecdriven;
 
 
 //#define Wworddrivemax 100.0
-double Wworddrivemax;
+extern double Wworddrivemax;
 
-double Waddrdrvn1;
-double Waddrdrvp1;
-double Waddrdrvn2;
-double Waddrdrvp2;
+extern double Waddrdrvn1;
+extern double Waddrdrvp1;
+extern double Waddrdrvn2;
+extern double Waddrdrvp2;
 
-double Wdecdrivep_second;
-double Wdecdriven_second;
-double Wdecdrivep_first;
-double Wdecdriven_first;
-double WdecdrivetreeN[10];
-double Cdectreesegments[10], Rdectreesegments[10];
-int    nr_dectreesegments;
-double Wdec3to8n ;
-double Wdec3to8p ;
-double WdecNORn  ;
-double WdecNORp  ;
-double Wdecinvn  ;
-double Wdecinvp  ;
-double WwlDrvn ;
-double WwlDrvp ;
+extern double Wdecdrivep_second;
+extern double Wdecdriven_second;
+extern double Wdecdrivep_first;
+extern double Wdecdriven_first;
+extern double WdecdrivetreeN[10];
+extern double Cdectreesegments[10], Rdectreesegments[10];
+extern int    nr_dectreesegments;
+extern double Wdec3to8n ;
+extern double Wdec3to8p ;
+extern double WdecNORn  ;
+extern double WdecNORp  ;
+extern double Wdecinvn  ;
+extern double Wdecinvp  ;
+extern double WwlDrvn ;
+extern double WwlDrvp ;
 
-double Wtdecdrivep_second;
-double Wtdecdriven_second;
-double Wtdecdrivep_first;
-double Wtdecdriven_first;
-double WtdecdrivetreeN[10];
-double Ctdectreesegments[10], Rtdectreesegments[10];
-int    nr_tdectreesegments;
-double Wtdec3to8n ;
-double Wtdec3to8p ;
-double WtdecNORn  ;
-double WtdecNORp  ;
-double Wtdecinvn  ;
-double Wtdecinvp  ;
-double WtwlDrvn ;
-double WtwlDrvp ;
+extern double Wtdecdrivep_second;
+extern double Wtdecdriven_second;
+extern double Wtdecdrivep_first;
+extern double Wtdecdriven_first;
+extern double WtdecdrivetreeN[10];
+extern double Ctdectreesegments[10], Rtdectreesegments[10];
+extern int    nr_tdectreesegments;
+extern double Wtdec3to8n ;
+extern double Wtdec3to8p ;
+extern double WtdecNORn  ;
+extern double WtdecNORp  ;
+extern double Wtdecinvn  ;
+extern double Wtdecinvp  ;
+extern double WtwlDrvn ;
+extern double WtwlDrvp ;
 
 
 /* #define Wmemcella	(2.4)
@@ -355,136 +355,136 @@ double WtwlDrvp ;
 */
 
 //#define Wmemcella	(0.9)
-double Wmemcella;
+extern double Wmemcella;
 
 /* added by MnM */
 //#define Wmemcellpmos (0.65)
-double Wmemcellpmos;
+extern double Wmemcellpmos;
 //#define Wmemcellnmos (2.0)
-double Wmemcellnmos;
+extern double Wmemcellnmos;
 
 
 //#define Wmemcellbscale	2		/* means 2x bigger than Wmemcella */
-int Wmemcellbscale;
+extern int Wmemcellbscale;
 /* #define Wbitpreequ	(80.0) */
-double Wbitpreequ;
+extern double Wbitpreequ;
 //#define Wpchmax		(25.0) /* precharge transistor sizes usually do not exceed 25 */
-double Wpchmax;
+extern double Wpchmax;
 
 
 /* #define Wbitmuxn	(10.0)
 //#define WsenseQ1to4	(4.0) */
 
-double Wpch;
-double Wiso;
-double WsenseEn;
-double WsenseN;
-double WsenseP;
-double WsPch;
-double WoBufN;
-double WoBufP;
+extern double Wpch;
+extern double Wiso;
+extern double WsenseEn;
+extern double WsenseN;
+extern double WsenseP;
+extern double WsPch;
+extern double WoBufN;
+extern double WoBufP;
 
-double WpchDrvp, WpchDrvn;
-double WisoDrvp, WisoDrvn;
-double WspchDrvp, WspchDrvn;
-double WsenseEnDrvp, WsenseEnDrvn;
+extern double WpchDrvp, WpchDrvn;
+extern double WisoDrvp, WisoDrvn;
+extern double WspchDrvp, WspchDrvn;
+extern double WsenseEnDrvp, WsenseEnDrvn;
 
-double WwrtMuxSelDrvn;
-double WwrtMuxSelDrvp;
-double WtwrtMuxSelDrvn;
-double WtwrtMuxSelDrvp;
+extern double WwrtMuxSelDrvn;
+extern double WwrtMuxSelDrvp;
+extern double WtwrtMuxSelDrvn;
+extern double WtwrtMuxSelDrvp;
 
-double Wtbitpreequ;
-double Wtpch;
-double Wtiso;
-double WtsenseEn;
-double WtsenseN;
-double WtsenseP;
-double WtoBufN;
-double WtoBufP;
-double WtsPch;
+extern double Wtbitpreequ;
+extern double Wtpch;
+extern double Wtiso;
+extern double WtsenseEn;
+extern double WtsenseN;
+extern double WtsenseP;
+extern double WtoBufN;
+extern double WtoBufP;
+extern double WtsPch;
 
-double WtpchDrvp, WtpchDrvn;
-double WtisoDrvp, WtisoDrvn;
-double WtspchDrvp, WtspchDrvn;
-double WtsenseEnDrvp, WtsenseEnDrvn;
+extern double WtpchDrvp, WtpchDrvn;
+extern double WtisoDrvp, WtisoDrvn;
+extern double WtspchDrvp, WtspchDrvn;
+extern double WtsenseEnDrvp, WtsenseEnDrvn;
 
 //#define Wcompinvp1	(10.0)
-double Wcompinvp1;
+extern double Wcompinvp1;
 //#define Wcompinvn1	(6.0)
-double Wcompinvn1;
+extern double Wcompinvn1;
 //#define Wcompinvp2	(20.0)
-double Wcompinvp2;
+extern double Wcompinvp2;
 //#define Wcompinvn2	(12.0)
-double Wcompinvn2;
+extern double Wcompinvn2;
 //#define Wcompinvp3	(40.0)
-double Wcompinvp3;
+extern double Wcompinvp3;
 //#define Wcompinvn3	(24.0)
-double Wcompinvn3;
+extern double Wcompinvn3;
 //#define Wevalinvp	(80.0)
-double Wevalinvp;
+extern double Wevalinvp;
 //#define Wevalinvn	(40.0)
-double Wevalinvn;
+extern double Wevalinvn;
 
 //#define Wfadriven    (50.0)
-double Wfadriven;
+extern double Wfadriven;
 //#define Wfadrivep    (100.0)
-double Wfadrivep;
+extern double Wfadrivep;
 //#define Wfadrive2n    (200.0)
-double Wfadrive2n;
+extern double Wfadrive2n;
 //#define Wfadrive2p    (400.0)
-double Wfadrive2p;
+extern double Wfadrive2p;
 //#define Wfadecdrive1n    (5.0)
-double Wfadecdrive1n;
+extern double Wfadecdrive1n;
 //#define Wfadecdrive1p    (10.0)
-double Wfadecdrive1p;
+extern double Wfadecdrive1p;
 //#define Wfadecdrive2n    (20.0)
-double Wfadecdrive2n;
+extern double Wfadecdrive2n;
 //#define Wfadecdrive2p    (40.0)
-double Wfadecdrive2p;
+extern double Wfadecdrive2p;
 //#define Wfadecdriven    (50.0)
-double Wfadecdriven;
+extern double Wfadecdriven;
 //#define Wfadecdrivep    (100.0)
-double Wfadecdrivep;
+extern double Wfadecdrivep;
 //#define Wfaprechn       (6.0)
-double Wfaprechn;
+extern double Wfaprechn;
 //#define Wfaprechp       (10.0)
-double Wfaprechp;
+extern double Wfaprechp;
 //#define Wdummyn         (10.0)
-double Wdummyn;
+extern double Wdummyn;
 //#define Wdummyinvn      (60.0)
-double Wdummyinvn;
+extern double Wdummyinvn;
 //#define Wdummyinvp      (80.0)
-double Wdummyinvp;
+extern double Wdummyinvp;
 //#define Wfainvn         (10.0)
-double Wfainvn;
+extern double Wfainvn;
 //#define Wfainvp         (20.0)
-double Wfainvp;
+extern double Wfainvp;
 //#define Waddrnandn      (50.0)
-double Waddrnandn;
+extern double Waddrnandn;
 //#define Waddrnandp      (50.0)
-double Waddrnandp;
+extern double Waddrnandp;
 //#define Wfanandn        (20.0)
-double Wfanandn;
+extern double Wfanandn;
 //#define Wfanandp        (30.0)
-double Wfanandp;
+extern double Wfanandp;
 //#define Wfanorn         (5.0)
-double Wfanorn;
+extern double Wfanorn;
 //#define Wfanorp         (10.0)
-double Wfanorp;
+extern double Wfanorp;
 //#define Wdecnandn       (10.0)
-double Wdecnandn;
+extern double Wdecnandn;
 //#define Wdecnandp       (30.0)
-double Wdecnandp;
+extern double Wdecnandp;
 
 //#define Wcompn		(10.0)
-double Wcompn;
+extern double Wcompn;
 //#define Wcompp		(30.0)
-double Wcompp;
+extern double Wcompp;
 //#define Wmuxdrv12n	(60.0)
-double Wmuxdrv12n;
+extern double Wmuxdrv12n;
 //#define Wmuxdrv12p	(100.0)
-double Wmuxdrv12p;
+extern double Wmuxdrv12p;
 
 /* #define WmuxdrvNANDn    (60.0)
 //#define WmuxdrvNANDp    (80.0)
@@ -496,22 +496,22 @@ double Wmuxdrv12p;
 // #define Woutdrvselp	(40.0)
 */
 
-double Coutdrvtreesegments[20], Routdrvtreesegments[20];
-double WoutdrvtreeN[20];
-int    nr_outdrvtreesegments;
+extern double Coutdrvtreesegments[20], Routdrvtreesegments[20];
+extern double WoutdrvtreeN[20];
+extern int    nr_outdrvtreesegments;
 
-double Cmuxdrvtreesegments[20], Rmuxdrvtreesegments[20];
-double WmuxdrvtreeN[20];
-int    nr_muxdrvtreesegments;
+extern double Cmuxdrvtreesegments[20], Rmuxdrvtreesegments[20];
+extern double WmuxdrvtreeN[20];
+extern int    nr_muxdrvtreesegments;
 
-double WmuxdrvNANDn    ;
-double WmuxdrvNANDp    ;
-double WmuxdrvNORn	;
-double WmuxdrvNORp	;
-double Wmuxdrv3n	;
-double Wmuxdrv3p	;
-double Woutdrvseln	;
-double Woutdrvselp	;
+extern double WmuxdrvNANDn    ;
+extern double WmuxdrvNANDp    ;
+extern double WmuxdrvNORn	;
+extern double WmuxdrvNORp	;
+extern double Wmuxdrv3n	;
+extern double Wmuxdrv3p	;
+extern double Woutdrvseln	;
+extern double Woutdrvselp	;
 
 
 /* #define Woutdrvnandn	(10.0)
@@ -522,44 +522,44 @@ double Woutdrvselp	;
 //#define Woutdriverp	(80.0)
 */
 
-double Woutdrvnandn;
-double Woutdrvnandp;
-double Woutdrvnorn	;
-double Woutdrvnorp	;
-double Woutdrivern	;
-double Woutdriverp	;
+extern double Woutdrvnandn;
+extern double Woutdrvnandp;
+extern double Woutdrvnorn	;
+extern double Woutdrvnorp	;
+extern double Woutdrivern	;
+extern double Woutdriverp	;
 
 
 //#define Wsenseextdrv1p (80.0)
-double Wsenseextdrv1p;
+extern double Wsenseextdrv1p;
 //#define Wsenseextdrv1n (40.0)
-double Wsenseextdrv1n;
+extern double Wsenseextdrv1n;
 //#define Wsenseextdrv2p (240.0)
-double Wsenseextdrv2p;
+extern double Wsenseextdrv2p;
 //#define Wsenseextdrv2n (160.0)
-double Wsenseextdrv2n;
+extern double Wsenseextdrv2n;
 
 
 /* other stuff (from tech report, appendix 1) */
 
 //#define krise		(0.4e-9)
-double krise;
+extern double krise;
 //#define tsensedata	(5.8e-10)
-double tsensedata;
+extern double tsensedata;
 // #define psensedata      (0.025e-9)
 //#define psensedata      (0.02e-9)
-double psensedata;
+extern double psensedata;
 //#define tsensescale     0.02e-10
-double tsensescale;
+extern double tsensescale;
 //#define tsensetag	(2.6e-10)
-double tsensetag;
+extern double tsensetag;
 // #define psensetag       (0.01e-9)
 //#define psensetag	(0.016e-9)
-double psensetag;
+extern double psensetag;
 //#define tfalldata	(7e-10)
-double tfalldata;
+extern double tfalldata;
 //#define tfalltag	(7e-10)
-double tfalltag;
+extern double tfalltag;
 #define Vbitpre		(3.3)
 static double VbitprePow;
 #define Vt		(1.09)
@@ -576,7 +576,7 @@ was:
 #define BitWidth	(8.0)
 */
 //#define BitWidth	7.746*0.8
-double BitWidth;
+extern double BitWidth;
 
 /* bit height of RAM cell in um */
 /*
@@ -584,13 +584,13 @@ was:
 #define BitHeight	(16.0)
 */
 //#define BitHeight	2*7.746*0.8
-double BitHeight;
+extern double BitHeight;
 
 //#define Cout		(0.5e-12)
-double Cout;
+extern double Cout;
 
-int dualVt ;
-int explore;
+extern int dualVt ;
+extern int explore;
 /*===================================================================*/
 
 /*
@@ -629,7 +629,7 @@ int explore;
 
 static int sequential_access_flag;
 static int fast_cache_access_flag;
-int pure_sram_flag; //Changed from static int to just int as value wasn't getting passed through to 
+extern int pure_sram_flag; //Changed from static int to just int as value wasn't getting passed through to 
 //area function in area.c
 
 #define EPSILON 0.5 //v4.1: This constant is being used in order to fix floating point -> integer

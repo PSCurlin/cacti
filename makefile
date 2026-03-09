@@ -1,43 +1,43 @@
 LIBS = -lm
-CC = gcc-9
+CXX = g++
 
-SRCS = main.c time.c area.c io.c leakage.c basic_circuit.c def.h areadef.h leakage.h basic_circuit.h io.h time.h cacti_interface.h
+SRCS = main.cpp time.cpp area.cpp io.cpp leakage.cpp basic_circuit.cpp def.h areadef.h leakage.h basic_circuit.h io.h time.h cacti_interface.h
 
 OBJS = main.o time.o area.o io.o leakage.o basic_circuit.o
 
 all: cacti
 
 pythonlib : time.o area.o io.o leakage.o basic_circuit.o cacti_wrap.o
-	$(CC) -shared $(FLAGS) area.o time.o leakage.o basic_circuit.o io.o cacti_wrap.o -L /usr/lib/python2.4/config -lpython2.4 -o _cacti.so
+	$(CXX) -shared $(FLAGS) area.o time.o leakage.o basic_circuit.o io.o cacti_wrap.o -L /usr/lib/python2.4/config -lpython2.4 -o _cacti.so
 
 cacti : main.o time.o area.o io.o leakage.o basic_circuit.o
-	$(CC) $(FLAGS) $(OBJS) -o cacti $(LIBS)
+	$(CXX) $(FLAGS) $(OBJS) -o cacti $(LIBS)
 
-main.o : main.c def.h areadef.h leakage.h basic_circuit.h
-	$(CC) $(FLAGS) -c main.c -o main.o
+main.o : main.cpp def.h areadef.h leakage.h basic_circuit.h
+	$(CXX) $(FLAGS) -c main.cpp -o main.o
 
-leakage.o : leakage.h leakage.c
-	$(CC) $(FLAGS) -c leakage.c -o leakage.o
+leakage.o : leakage.h leakage.cpp
+	$(CXX) $(FLAGS) -c leakage.cpp -o leakage.o
 
-time.o :  time.c def.h areadef.h leakage.h basic_circuit.h cacti_interface.h
-	$(CC) $(FLAGS) -c time.c -o time.o
+time.o :  time.cpp def.h areadef.h leakage.h basic_circuit.h cacti_interface.h
+	$(CXX) $(FLAGS) -c time.cpp -o time.o
 
-area.o : area.c def.h areadef.h cacti_interface.h
-	$(CC) $(FLAGS) -c area.c -o area.o 
+area.o : area.cpp def.h areadef.h cacti_interface.h
+	$(CXX) $(FLAGS) -c area.cpp -o area.o 
 
-io.o : def.h io.c areadef.h cacti_interface.h
-	$(CC) $(FLAGS) -c io.c -o io.o
+io.o : def.h io.cpp areadef.h cacti_interface.h
+	$(CXX) $(FLAGS) -c io.cpp -o io.o
 
-basic_circuit.o : basic_circuit.h basic_circuit.c
-	$(CC) $(FLAGS) -c basic_circuit.c -o basic_circuit.o 
+basic_circuit.o : basic_circuit.h basic_circuit.cpp
+	$(CXX) $(FLAGS) -c basic_circuit.cpp -o basic_circuit.o 
 
-cacti_wrap.o :  cacti_wrap.c
-	$(CC) -c io.c area.c time.c \
-		basic_circuit.c leakage.c cacti_wrap.c \
+cacti_wrap.o :  cacti_wrap.cpp
+	$(CXX) -c io.cpp area.cpp time.cpp \
+		basic_circuit.cpp leakage.cpp cacti_wrap.cpp \
 		-I /usr/include/python2.4 \
 		-I /usr/lib/python2.4/config
 
-cacti_wrap.c: cacti.i
+cacti_wrap.cpp: cacti.i
 	swig -python cacti.i
 
 clean:
